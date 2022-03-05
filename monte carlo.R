@@ -20,10 +20,14 @@ setwd("~/Documents/GitHub/heatpump-CBA")
 ### commands that have been commented out
 #install.packages("stringr")
 #install.packages("dplyr")
-#install.packages("purrr)
+#install.packages("purrr")
+#install.packages("readxl")
+#install.packages("lubridate")
 library(stringr)
 library(dplyr)
 library(purrr)
+library(readxl)
+library(lubridate)
 
 ################### set functions ########################################
 ############### functions to be used for calculations #####################
@@ -209,15 +213,27 @@ cooling <- F # no cooling
 decarb_year <- 2050 #BAU
 #decarb_year <- 2039 #aggressive decarbonization
 
-## county <- using for testing
-county <- "Milwaukee"
+## two testing scenarios, for now:
+county <- "Dane"
+zip <- 53703
+elec_utility <- "3270"
+gas_utility <- "3270"
+# county <- "Oneida"
+# zip <- 54501
+# elec_utility <- "6690"
+# gas_utility <- "6690"
 
 ##### read in necessary files ######################################
 #### read in and set up price projections for later
 ### values from EIA's projected costs of fuel/electricity over time. 
 projections_base <- read.csv("Energy_Prices_Residential_projections.csv", skip = 4)
 #changes order so first row is year 1 (i.e. 2021)
-projections_base <- arrange(projections_base, Year) 
+projections_base <- arrange(projections_base, Year)
+## convert to growth rates instead of absolute numbers
+## keep the projections_base data since we will use it for areas for which we don't
+## have spatial data 
+base <- projections_base[1,]
+fuel_cost_growth_rates <- as.data.frame(t(apply(projections_base, 1, function(rowval) unlist(rowval / base))))
 
 #### read in list of ASHP COPs
 ASHP_COPs <- read.csv("ASHP random sample.csv")
@@ -252,6 +268,25 @@ naturalgas_furnace_efficiency <- .95
 heatingoil_furnace_efficiency <- .9
 propane_furnace_efficiency <- .9
 
+### year 1 fuel prices
+weights <- read.csv("./Temperature Data/HDD Proportions by Month by Climate Zone Using 2020 15 Year Normals.csv")
+weights <- filter(weights, zone == climate_zone)
+
+## electricity
+elec_cost <- read.csv("./Fuel cost data/electricity data.csv")
+elec_cost <- filter(elec_cost, Utility.ID == elec_utility)
+elec_cost$Bill.Date <- mdy(elec_cost$Bill.Date)
+elec_cost$month <- month(elec_cost$Bill.Date)
+elec_cost <- left_join(elec_cost, weights, by = "month")
+electricity_heating_cost <- sum(elec_cost$Total.Charge..per.kWh.*elec_cost$proportion)
+
+### natural gas
+natgas_cost <- read.csv("nat. gas cost, monthly averages.csv")
+natgas_cost <- filter(natgas_cost, Utility.Code == gas_utility)
+colnames(natgas_cost)[1] <- "month"
+natgas_cost <- left_join(natgas_cost, weights, by = "month")
+ng_heating_cost <- sum(natgas_cost$price*natgas_cost$proportion)
+
 ### keeps track of monte carlo results
 track_trials <- data.frame(n = c(1:n_trials), NG = 0, HO = 0, P = 0, ASHP_NG = 0,
                            ASHP_HO = 0, ASHP_P = 0)
@@ -275,6 +310,7 @@ for(i in 1:n_trials){
   scenario <- floor(runif(1, min = 1, max = 11))
   columns <- c(scenario + 1, scenario + 11, scenario + 21, scenario + 31)
   projections <- projections_base[,columns]
+  fuel_cost_growth_rates <- fuel_cost_growth_rates[,columns]
   
   ## heating variables
   #### calculate the proportion of heating load that the backup heating system 
@@ -284,14 +320,13 @@ for(i in 1:n_trials){
   ### respective fuel at year 1. 
   ### we start with a COP value that is then translated into a temperature later with the use
   ### of the COP function
-  year1_electricity_price <- projections[1,which(str_detect(colnames(projections), "Electricity"))]
-  ASHP_NG_switchover_COP <- year1_electricity_price*
+  ASHP_NG_switchover_COP <- electricity_heating_cost*
     (naturalgas_furnace_efficiency/
-       projections[1,which(str_detect(colnames(projections), "Natural.Gas"))])
-  ASHP_HO_switchover_COP <- year1_electricity_price*
+       ng_heating_cost)
+  ASHP_HO_switchover_COP <- electricity_heating_cost*
     (heatingoil_furnace_efficiency/
        projections[1,which(str_detect(colnames(projections), "Distillate.Fuel.Oil"))])
-  ASHP_P_switchover_COP <- year1_electricity_price*
+  ASHP_P_switchover_COP <- electricity_heating_cost*
     (propane_furnace_efficiency/
        projections[1,which(str_detect(colnames(projections), "Propane"))])
   
@@ -570,8 +605,8 @@ for(i in 1:n_trials){
   for(j in 1:years_of_analysis){
     ###cost variables
     #fuel cost in 2020 $/mmBTU from EIA projections for year j
-    electricity_price <- projections[j, which(str_detect(colnames(projections), "Electricity"))]*.5
-    naturalgas_price <- projections[j, which(str_detect(colnames(projections), "Gas"))] 
+    electricity_price <- electricity_heating_cost*fuel_cost_growth_rates[j, which(str_detect(colnames(fuel_cost_growth_rates), "Electricity"))]
+    naturalgas_price <- ng_heating_cost*fuel_cost_growth_rates[j, which(str_detect(colnames(fuel_cost_growth_rates), "Gas"))] 
     heatingoil_price <- projections[j, which(str_detect(colnames(projections), "Oil"))] 
     propane_price <- projections[j, which(str_detect(colnames(projections), "Propane"))] 
     
