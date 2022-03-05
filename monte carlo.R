@@ -224,13 +224,13 @@ ASHP_COPs <- read.csv("ASHP random sample.csv")
 ASHP_COPs <- select(ASHP_COPs, starts_with("cop"))
 
 ## climate zones
-climate_zone <- read.csv("./Temp/HDD zones by county.csv")
+climate_zone <- read.csv("./Temperature Data/HDD zones by county.csv")
 climate_zone <- filter(climate_zone, County == county)
 climate_zone <- climate_zone$Zone
 
 ## Annual temperatures
 ## source: https://www.ncei.noaa.gov/access/search/data-search/normals-hourly-2006-2020
-temperature_bin_hours <- read.csv("./Temp/2020 15 year temp normals in WI by 11 HDD zones.csv")
+temperature_bin_hours <- read.csv("./Temperature Data/2020 15 year temp normals in WI by 11 HDD zones.csv")
 temperature_bin_hours <- filter(temperature_bin_hours, zone == climate_zone)
 temperature_bin_hours <- select(temperature_bin_hours, HLY.TEMP.NORMAL)
 temperature_bin_hours <- arrange(temperature_bin_hours, HLY.TEMP.NORMAL)
@@ -241,7 +241,7 @@ indoor_design_temperature <- 65 #degrees Fahrenheit
 
 ## outdoor design temperature csv
 #source: https://casetext.com/regulation/wisconsin-administrative-code/agency-department-of-safety-and-professional-services/safety-buildings-and-environment/commercial-building-code/chapter-sps-363-energy-conservation/subchapter-ii-changes-additions-or-omissions-to-the-international-energy-conservation-code-iecc/section-sps-3630302-exterior-design-conditions
-outdoor_design_temperature <- read.csv("./Temp/Outdoor design temps by county.csv")
+outdoor_design_temperature <- read.csv("./Temperature Data/Outdoor design temps by county.csv")
 outdoor_design_temperature <- filter(outdoor_design_temperature, County == county)
 outdoor_design_temperature <- outdoor_design_temperature$Outdoor.Design.Temp
 
