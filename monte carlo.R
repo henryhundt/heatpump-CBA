@@ -233,7 +233,7 @@ projections_base <- arrange(projections_base, Year)
 ## keep the projections_base data since we will use it for areas for which we don't
 ## have spatial data 
 base <- projections_base[1,]
-fuel_cost_growth_rates <- as.data.frame(t(apply(projections_base, 1, function(rowval) unlist(rowval / base))))
+fuel_cost_growth_rates_base <- as.data.frame(t(apply(projections_base, 1, function(rowval) unlist(rowval / base))))
 
 #### read in list of ASHP COPs
 ASHP_COPs <- read.csv("ASHP random sample.csv")
@@ -273,7 +273,7 @@ weights <- read.csv("./Temperature Data/HDD Proportions by Month by Climate Zone
 weights <- filter(weights, zone == climate_zone)
 
 ## electricity
-elec_cost <- read.csv("./Fuel cost data/electricity data.csv")
+elec_cost <- read.csv("./Fuel cost data/final electricity data.csv")
 elec_cost <- filter(elec_cost, Utility.ID == elec_utility)
 elec_cost$Bill.Date <- mdy(elec_cost$Bill.Date)
 elec_cost$month <- month(elec_cost$Bill.Date)
@@ -286,6 +286,11 @@ natgas_cost <- filter(natgas_cost, Utility.Code == gas_utility)
 colnames(natgas_cost)[1] <- "month"
 natgas_cost <- left_join(natgas_cost, weights, by = "month")
 ng_heating_cost <- sum(natgas_cost$price*natgas_cost$proportion)
+
+### installation sizing and efficiency 
+### TKTKTK
+size <- 2
+efficiency <- 16
 
 ### keeps track of monte carlo results
 track_trials <- data.frame(n = c(1:n_trials), NG = 0, HO = 0, P = 0, ASHP_NG = 0,
@@ -310,7 +315,7 @@ for(i in 1:n_trials){
   scenario <- floor(runif(1, min = 1, max = 11))
   columns <- c(scenario + 1, scenario + 11, scenario + 21, scenario + 31)
   projections <- projections_base[,columns]
-  fuel_cost_growth_rates <- fuel_cost_growth_rates[,columns]
+  fuel_cost_growth_rates <- fuel_cost_growth_rates_base[,columns]
   
   ## heating variables
   #### calculate the proportion of heating load that the backup heating system 
@@ -390,26 +395,35 @@ for(i in 1:n_trials){
   # P: https://www.homewyse.com/costs/cost_of_energy_efficient_gas_furnaces.html
   # AC: https://www.homewyse.com/costs/cost_of_central_air_conditioning_systems.html
   
+  ASHP_installment_file <- read.csv(paste0("./Installation costs/cost to install heat pump - ",size," ton ", efficiency, " SEER.csv"))
+  ASHP_installment_file <- filter(ASHP_installment_file, zipcode == zip)
+  AC_installment_file <- read.csv(paste0("./Installation costs/cost to install AC - ",size," ton ", efficiency, " SEER.csv"))
+  AC_installment_file <- filter(AC_installment_file, zipcode == zip)
+  NG_P_installment_file <- read.csv(paste0("./Installation costs/cost to install NG furnace - 70K BTU 92%+ efficiency.csv"))
+  NG_P_installment_file <- filter(NG_P_installment_file, zipcode == zip)
+  HO_installment_file <- read.csv(paste0("./Installation costs/cost to install oil furnace - 70K BTU 85%+ efficiency.csv"))
+  HO_installment_file <- filter(HO_installment_file, zipcode == zip)
+  
   # nonlabor cost of installing an ASHP in dollars per unit 
-  ASHP_nonlabor_installment_cost <- runif(1, min = 4240, max = 4960) 
+  ASHP_nonlabor_installment_cost <- runif(1, min = ASHP_installment_file$systemcost_low, max = ASHP_installment_file$systemcost_high) 
   # cost of installing a natural gas furnace in dollars per unit 
-  naturalgas_furnace_nonlabor_installment_cost <- runif(1, min = 1975, max = 2128) 
+  naturalgas_furnace_nonlabor_installment_cost <- runif(1, min = NG_P_installment_file$systemcost_low, max = NG_P_installment_file$systemcost_high) 
   # cost of installing a heating oil furnace in dollars per unit 
-  heatingoil_furnace_nonlabor_installment_cost <- runif(1, min = 2482, max = 3107) 
+  heatingoil_furnace_nonlabor_installment_cost <- runif(1, min = HO_installment_file$systemcost_low, max = HO_installment_file$systemcost_high) 
   # cost of installing a propane furnace in dollars per unit 
-  propane_furnace_nonlabor_installment_cost <- runif(1, min = 1975, max = 2128) 
+  propane_furnace_nonlabor_installment_cost <- naturalgas_furnace_nonlabor_installment_cost
   # cost of installing air conditioning in dollars per unit
   AC_nonlabor_installment_cost <- 0
-  if(cooling){AC_nonlabor_installment_cost <- runif(1, min = 3906, max = 4564)} 
+  if(cooling){AC_nonlabor_installment_cost <- runif(1, min = AC_installment_file$systemcost_low, max = AC_installment_file$systemcost_high)} 
   ## labor costs - we assume these to covary perfectly
   labor_costs <- runif(1,0,1)
   # take the low labor cost and add the difference between high and low times our
   # random value for how expensive labor is in the area that the heating tech is
   # being installed in (labor_costs, above)
-  ASHP_labor_installment_cost <- 1289 + labor_costs*571 #low = 1289, high = 1860
-  naturalgas_furnace_labor_installment_cost <- 923 + labor_costs*418 #low = 923, high = 1341
-  heatingoil_furnace_labor_installment_cost <- 636 + labor_costs*174 #low = 636, high = 810
-  propane_furnace_labor_installment_cost <- 923 + labor_costs*418 #low = 923, high = 1341 
+  ASHP_labor_installment_cost <- ASHP_installment_file$laborcost_low + labor_costs*(ASHP_installment_file$laborcost_high - ASHP_installment_file$laborcost_low) #low = 1289, high = 1860
+  naturalgas_furnace_labor_installment_cost <- NG_P_installment_file$laborcost_low + labor_costs*(NG_P_installment_file$laborcost_high - NG_P_installment_file$laborcost_low) #low = 923, high = 1341
+  heatingoil_furnace_labor_installment_cost <- HO_installment_file$laborcost_low + labor_costs*(HO_installment_file$laborcost_high - HO_installment_file$laborcost_low) #low = 636, high = 810
+  propane_furnace_labor_installment_cost <- naturalgas_furnace_labor_installment_cost #low = 923, high = 1341 
   AC_labor_installment_cost <- 0
   #if(cooling){AC_labor_installment_cost <- 2364 + labor_costs*867} #low = 2364, high = 3232
   ## after receiving feedback from PSC that questioned the Homewyse values, we chose
