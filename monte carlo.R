@@ -13,7 +13,7 @@
 
 #set working directory
 rm(list = ls())
-setwd("~/Desktop/ENV 810/Data")
+setwd("~/Documents/GitHub/heatpump-CBA")
 
 # read in necessary libraries
 ### if not downloaded on your computer, first run the install.packages 
