@@ -68,8 +68,8 @@ for(i in unique(blah$FIPS)){
 final <- final[-1529,]
 
 ##  a dataframe at the census tract level
-write.csv(final, "combined census tracts and zipcodes.csv")
+write.csv(final, "combined census tracts and zipcodes.csv", row.names = F)
 
 final2 <- final[!duplicated(final$COUNTY),]
 ## a dataframe at the county level
-write.csv(final2, "combined counties and zipcodes.csv")
+write.csv(final2, "combined counties and zipcodes.csv", row.names = F)
