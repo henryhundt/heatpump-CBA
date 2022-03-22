@@ -1,0 +1,26 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2638
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 Generating the geospatial database using arcGIS online:\
+\
+1. Take all the zip codes and aggregate them into the 3 different price regions (skip this step if you want to keep individual zip codes)\
+1a. Do this by first uploading a csv file that contains each zip code in Wisconsin with the respective price regions according to homewyse (see \'93price region by zip.csv\'94 in the installation costs folder.\
+1b. Then merge this csv to the \'93United States Zip Code Boundaries 2020\'94 layer by zip code using the \'93Join Features\'94 tool under the \'93Summarize Data\'94 set of analysis tools.\
+1c. Lastly, go to the \'93Manage Data\'94 set of tools and choose \'93Dissolve Boundaries\'94 and dissolve the boundaries by \'93price region\'94. The result should be five regions around Wisconsin (although only 3 different price levels)\
+1d. You can the same thing with the climate zones (e.g. take the counties in Wisconsin and merge them into the different climate zones instead of keeping them as unique counties). \
+\
+\
+2. Now, take the geographic area of interest (census tract, county, climate zone) and go to the \'93Manage Data\'94 set of tools and choose \'93Overlay Layers\'94. \
+2a. You want to overlay the price regions onto the census tract areas, so the census tract areas should be the input layer and the price regions should be the overlay layer.\
+2b. Leave the overlay method as \'93intersect\'94 and the output should be \'93Areas\'94\
+2c. The result is a file with unique census tract (e.g.) + price region combinations (i.e. if a census tract is bisected by a price region, the result will have two different shapes, one for the portion of the census tract in the first price region, the second for the portion of the census tract in the second price, etc.)\
+\
+3. Now you want to use the \'93Union\'94 method from the \'93Overlay Layers\'94 tool.\
+3a. One by one take the result of part 2 and, using it as the target layer, overlay the different utility maps onto it with \'93union\'94 as the setting\
+\
+4. Finally, go to manage data and choose Extract Data to download the resulting data frame as a csv for use in the Monte Carlo simulation.\
+}

@@ -249,16 +249,35 @@ indoor_design_temperature <- 65 #degrees Fahrenheit
 outdoor_design_temperature_base <- read.csv("./Temperature Data/Outdoor design temps by county.csv")
 
 ### weights for calculating annual fuel costs
-weights <- read.csv("./Temperature Data/HDD Proportions by Month by Climate Zone Using 2020 15 Year Normals.csv")
+weights_base <- read.csv("./Temperature Data/HDD Proportions by Month by Climate Zone Using 2020 15 Year Normals.csv")
 
 ## electricity
-elec_cost <- read.csv("./Fuel cost data/final electricity data.csv")
-elec_cost$Bill.Date <- mdy(elec_cost$Bill.Date)
-elec_cost$month <- month(elec_cost$Bill.Date)
+elec_cost_base <- read.csv("./Fuel cost data/final electricity data.csv")
+elec_cost_base$Bill.Date <- mdy(elec_cost_base$Bill.Date)
+elec_cost_base$month <- month(elec_cost_base$Bill.Date)
 
 ### natural gas
-natgas_cost <- read.csv("nat. gas cost, monthly averages.csv")
-colnames(natgas_cost)[1] <- "month"
+natgas_cost_base <- read.csv("nat. gas cost, monthly averages.csv")
+colnames(natgas_cost_base)[1] <- "month"
+
+## not to keep
+### installation sizing and efficiency 
+### TKTKTK
+size <- 2
+efficiency <- 16
+
+#installment cost
+### sources are as follows:
+# ASHP: https://www.homewyse.com/costs/cost_of_heat_pump_systems.html
+# NG: https://www.homewyse.com/costs/cost_of_energy_efficient_gas_furnaces.html
+# HO: https://www.homewyse.com/costs/cost_of_oil_furnaces.html
+# P: https://www.homewyse.com/costs/cost_of_energy_efficient_gas_furnaces.html
+# AC: https://www.homewyse.com/costs/cost_of_central_air_conditioning_systems.html
+
+ASHP_installment_file_base <- read.csv(paste0("./Installation costs/cost to install heat pump - ",size," ton ", efficiency, " SEER.csv"))
+AC_installment_file_base <- read.csv(paste0("./Installation costs/cost to install AC - ",size," ton ", efficiency, " SEER.csv"))
+NG_P_installment_file_base <- read.csv(paste0("./Installation costs/cost to install NG furnace - 70K BTU 92%+ efficiency.csv"))
+HO_installment_file_base <- read.csv(paste0("./Installation costs/cost to install oil furnace - 70K BTU 85%+ efficiency.csv"))
 
 ###efficiency variables - note that efficiency is a unitless value
 # this can be thought of as the average efficiency of whichever furnace across
@@ -267,19 +286,21 @@ naturalgas_furnace_efficiency <- .95
 heatingoil_furnace_efficiency <- .9
 propane_furnace_efficiency <- .9
 
-### installation sizing and efficiency 
-### TKTKTK
-size <- 2
-efficiency <- 16
+## not to keep
+elec_utility = "3270"
+gas_utility = "3270"
+
+
 
 for(k in 1:nrow(geo)) {
   county <- geo[k, "county_fips"]
+  zip <- geo[k, "zip"]
   ## climate zones
   climate_zone <- filter(climate_zone_base, county_fips == county)
   climate_zone <- climate_zone$Zone
 
   #temperature bins
-  temperature_bin_hours <- filter(temperature_bin_hours, zone == climate_zone)
+  temperature_bin_hours <- filter(temperature_bin_hours_base, zone == climate_zone)
   temperature_bin_hours <- select(temperature_bin_hours, HLY.TEMP.NORMAL)
   temperature_bin_hours <- arrange(temperature_bin_hours, HLY.TEMP.NORMAL)
 
@@ -288,15 +309,15 @@ for(k in 1:nrow(geo)) {
   outdoor_design_temperature <- outdoor_design_temperature$Outdoor.Design.Temp
 
   # weights for calculating annual heating fuel costs from monthly costs and monthly usage
-  weights <- filter(weights, zone == climate_zone)
+  weights <- filter(weights_base, zone == climate_zone)
 
   # apply weights to electricity cost
-  elec_cost <- filter(elec_cost, Utility.ID == elec_utility)
+  elec_cost <- filter(elec_cost_base, Utility.ID == elec_utility)
   elec_cost <- left_join(elec_cost, weights, by = "month")
   electricity_heating_cost <- sum(elec_cost$Total.Charge..per.kWh.*elec_cost$proportion)
 
   # apply weights to natural gas cost
-  natgas_cost <- filter(natgas_cost, Utility.Code == gas_utility)
+  natgas_cost <- filter(natgas_cost_base, Utility.Code == gas_utility)
   natgas_cost <- left_join(natgas_cost, weights, by = "month")
   ng_heating_cost <- sum(natgas_cost$price*natgas_cost$proportion)
 
@@ -367,7 +388,7 @@ for(k in 1:nrow(geo)) {
     ASHP_HO_heating <- heating_load - ASHP_HO_backup_heating
     ASHP_P_heating <- heating_load - ASHP_P_backup_heating
     
-    #installment cost
+    ## installment costs
     ### all values are the mean value of Homewyse estimates of the cost of installing 
     ### each respective piece of technology in the 12 most populous Wisconsin counties.
     ### the average costs were compared to an average in smaller counties and in all 
@@ -385,21 +406,10 @@ for(k in 1:nrow(geo)) {
     ### meet load at much lower temperatures, are sized at 70K Btus/hour and are 
     ### assumed to be efficient (homewyse essentially allows for an efficient or
     ### inefficient option for the furnaces).
-    ### sources are as follows:
-    # ASHP: https://www.homewyse.com/costs/cost_of_heat_pump_systems.html
-    # NG: https://www.homewyse.com/costs/cost_of_energy_efficient_gas_furnaces.html
-    # HO: https://www.homewyse.com/costs/cost_of_oil_furnaces.html
-    # P: https://www.homewyse.com/costs/cost_of_energy_efficient_gas_furnaces.html
-    # AC: https://www.homewyse.com/costs/cost_of_central_air_conditioning_systems.html
-    
-    ASHP_installment_file <- read.csv(paste0("./Installation costs/cost to install heat pump - ",size," ton ", efficiency, " SEER.csv"))
-    ASHP_installment_file <- filter(ASHP_installment_file, zipcode == zip)
-    AC_installment_file <- read.csv(paste0("./Installation costs/cost to install AC - ",size," ton ", efficiency, " SEER.csv"))
-    AC_installment_file <- filter(AC_installment_file, zipcode == zip)
-    NG_P_installment_file <- read.csv(paste0("./Installation costs/cost to install NG furnace - 70K BTU 92%+ efficiency.csv"))
-    NG_P_installment_file <- filter(NG_P_installment_file, zipcode == zip)
-    HO_installment_file <- read.csv(paste0("./Installation costs/cost to install oil furnace - 70K BTU 85%+ efficiency.csv"))
-    HO_installment_file <- filter(HO_installment_file, zipcode == zip)
+    ASHP_installment_file <- filter(ASHP_installment_file_base, zipcode == zip)
+    AC_installment_file <- filter(AC_installment_file_base, zipcode == zip)
+    NG_P_installment_file <- filter(NG_P_installment_file_base, zipcode == zip)
+    HO_installment_file <- filter(HO_installment_file_base, zipcode == zip)
     
     # nonlabor cost of installing an ASHP in dollars per unit 
     ASHP_nonlabor_installment_cost <- runif(1, min = ASHP_installment_file$systemcost_low, max = ASHP_installment_file$systemcost_high) 
