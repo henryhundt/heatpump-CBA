@@ -296,6 +296,7 @@ propane_furnace_efficiency <- .9
 
 ### clean the spatial dataset and determine which electric utility's data to use
 geo <- filter(geo, AnalysisArea > 0.5)
+geo <- filter(geo, !is.na(FIPS))
 geo <- filter(geo, !(FID_COOP_UTILITY_BOUNDARIES_COO == -1 & FID_WI_IOU_UTILITY_BOUNDARIES_W == -1 & FID_WI_MUNI_UTILITY_BOUNDARIES_ == -1))
 ## we assume that the hierarchy of electricity usage is municipality >> coop >> IOU
 geo <- mutate(geo, elec_utility = ifelse(FID_WI_MUNI_UTILITY_BOUNDARIES_ != -1, PSC_ID, 
@@ -823,7 +824,7 @@ for(k in 1:nrow(geo)) {
     #   sum(track_years$ASHP_HO_emissions)
     # track_emissions_and_private[i, "ASHP_P_emissions"] <-
     #   sum(track_years$ASHP_P_emissions)
-    if(i%%100 == 0) print(paste0("hi: ", i/100))
+    if(i%%100 == 0) print(paste0("trial: ", i))
     }
   track_trials$NG_dif <- track_trials$NG - track_trials$ASHP_NG
   track_trials$HO_dif <- track_trials$HO - track_trials$ASHP_HO
