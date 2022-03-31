@@ -220,6 +220,9 @@ geo <- read.csv("./creating geographic data set/county_installprice_all_elec.csv
 geo$mean_NG <- 0
 geo$mean_HO <- 0
 geo$mean_P <- 0
+geo$perc_NG <- 0
+geo$perc_HO <- 0
+geo$perc_P <- 0
 
 #### read in and set up price projections for later
 ### values from EIA's projected costs of fuel/electricity over time. 
@@ -304,7 +307,6 @@ geo <- mutate(geo, elec_utility = ifelse(FID_WI_MUNI_UTILITY_BOUNDARIES_ != -1, 
 for(k in 1:nrow(geo)) {
   county <- geo[k,]$FIPS
   price_region <- geo[k,]$price_region
-  price <- geo[k,]$price_region
   elec_utility <- geo[k,]$elec_utility
   ## climate zones
   climate_zone <- filter(climate_zone_base, county_fips == county)
@@ -821,11 +823,18 @@ for(k in 1:nrow(geo)) {
     #   sum(track_years$ASHP_HO_emissions)
     # track_emissions_and_private[i, "ASHP_P_emissions"] <-
     #   sum(track_years$ASHP_P_emissions)
+    if(i%%100 == 0) print(paste0("hi: ", i/100))
     }
-  geo$mean_NG <- mean(track_trials$ASHP_NG - track_trials$NG)
-  geo$mean_HO <- mean(track_trials$ASHP_HO - track_trials$HO)
-  geo$mean_P <- mean(track_trials$ASHP_P - track_trials$P)
-  print(k)
+  track_trials$NG_dif <- track_trials$NG - track_trials$ASHP_NG
+  track_trials$HO_dif <- track_trials$HO - track_trials$ASHP_HO
+  track_trials$P_dif <- track_trials$P - track_trials$ASHP_P
+  geo[k,]$mean_NG <- mean(track_trials$NG_dif)
+  geo[k,]$mean_HO <- mean(track_trials$HO_dif)
+  geo[k,]$mean_P <- mean(track_trials$P_dif)
+  geo[k,]$perc_NG <- mean(track_trials$NG_dif > 0)
+  geo[k,]$perc_HO <- mean(track_trials$HO_dif > 0)
+  geo[k,]$perc_P <- mean(track_trials$P_dif > 0)
+  print(paste0("geo:", k))
 }
 
 ## results
