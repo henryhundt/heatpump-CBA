@@ -216,7 +216,10 @@ decarb_year <- 2050 #BAU
 ##### read in necessary files ######################################
 #### read in the geographic dataframe:
 ## counties
-geo <- read.csv("./creating geographic data set/combined counties and zipcodes.csv")
+geo <- read.csv("./creating geographic data set/county_installprice_all_elec.csv")
+geo$mean_NG <- 0
+geo$mean_HO <- 0
+geo$mean_P <- 0
 
 #### read in and set up price projections for later
 ### values from EIA's projected costs of fuel/electricity over time. 
@@ -250,15 +253,17 @@ outdoor_design_temperature_base <- read.csv("./Temperature Data/Outdoor design t
 
 ### weights for calculating annual fuel costs
 weights_base <- read.csv("./Temperature Data/HDD Proportions by Month by Climate Zone Using 2020 15 Year Normals.csv")
+colnames(weights_base)[1] <- "Month"
 
 ## electricity
-elec_cost_base <- read.csv("./Fuel cost data/final electricity data.csv")
-elec_cost_base$Bill.Date <- mdy(elec_cost_base$Bill.Date)
-elec_cost_base$month <- month(elec_cost_base$Bill.Date)
+elec_cost_base <- read.csv("./final electricity data.csv")
+
+# heating load
+heating_load_base <- read.csv("./heating load data/heating load by county.csv")
 
 ### natural gas
-natgas_cost_base <- read.csv("nat. gas cost, monthly averages.csv")
-colnames(natgas_cost_base)[1] <- "month"
+#natgas_cost_base <- read.csv("nat. gas cost, monthly averages.csv")
+#colnames(natgas_cost_base)[1] <- "month"
 
 ## not to keep
 ### installation sizing and efficiency 
@@ -286,15 +291,21 @@ naturalgas_furnace_efficiency <- .95
 heatingoil_furnace_efficiency <- .9
 propane_furnace_efficiency <- .9
 
-## not to keep
-elec_utility = "3270"
-gas_utility = "3270"
+### clean the spatial dataset and determine which electric utility's data to use
+geo <- filter(geo, AnalysisArea > 0.5)
+geo <- filter(geo, !(FID_COOP_UTILITY_BOUNDARIES_COO == -1 & FID_WI_IOU_UTILITY_BOUNDARIES_W == -1 & FID_WI_MUNI_UTILITY_BOUNDARIES_ == -1))
+## we assume that the hierarchy of electricity usage is municipality >> coop >> IOU
+geo <- mutate(geo, elec_utility = ifelse(FID_WI_MUNI_UTILITY_BOUNDARIES_ != -1, PSC_ID, 
+                                    ifelse(FID_COOP_UTILITY_BOUNDARIES_COO != -1, 
+                                           PSC_ID_1, PSC_ID_12)))
 
 
 
 for(k in 1:nrow(geo)) {
-  county <- geo[k, "county_fips"]
-  zip <- geo[k, "zip"]
+  county <- geo[k,]$FIPS
+  price_region <- geo[k,]$price_region
+  price <- geo[k,]$price_region
+  elec_utility <- geo[k,]$elec_utility
   ## climate zones
   climate_zone <- filter(climate_zone_base, county_fips == county)
   climate_zone <- climate_zone$Zone
@@ -307,20 +318,17 @@ for(k in 1:nrow(geo)) {
   #outdoor design temperature
   outdoor_design_temperature <- filter(outdoor_design_temperature_base, county_fips == county)
   outdoor_design_temperature <- outdoor_design_temperature$Outdoor.Design.Temp
-
-  # weights for calculating annual heating fuel costs from monthly costs and monthly usage
-  weights <- filter(weights_base, zone == climate_zone)
-
-  # apply weights to electricity cost
+  
+  # heating load
+  heating_load <- select(heating_load_base, contains(as.character(county)))
+  heating_load <- sum(heating_load[,1])
+  
+  # electricity cost
   elec_cost <- filter(elec_cost_base, Utility.ID == elec_utility)
-  elec_cost <- left_join(elec_cost, weights, by = "month")
-  electricity_heating_cost <- sum(elec_cost$Total.Charge..per.kWh.*elec_cost$proportion)
-
-  # apply weights to natural gas cost
-  natgas_cost <- filter(natgas_cost_base, Utility.Code == gas_utility)
-  natgas_cost <- left_join(natgas_cost, weights, by = "month")
-  ng_heating_cost <- sum(natgas_cost$price*natgas_cost$proportion)
-
+  weights <- filter(weights_base, zone == climate_zone)
+  elec_cost <- left_join(elec_cost, weights, by = "Month")
+  electricity_heating_cost <- sum(elec_cost$Month*elec_cost$Rate)  
+  
   ### keeps track of monte carlo results
   track_trials <- data.frame(n = c(1:n_trials), NG = 0, HO = 0, P = 0, ASHP_NG = 0,
                            ASHP_HO = 0, ASHP_P = 0)
@@ -345,7 +353,7 @@ for(k in 1:nrow(geo)) {
     ### of the COP function
     ASHP_NG_switchover_COP <- electricity_heating_cost*
       (naturalgas_furnace_efficiency/
-         ng_heating_cost)
+         projections[1,which(str_detect(colnames(projections), "Natural.Gas"))])
     ASHP_HO_switchover_COP <- electricity_heating_cost*
       (heatingoil_furnace_efficiency/
          projections[1,which(str_detect(colnames(projections), "Distillate.Fuel.Oil"))])
@@ -369,9 +377,6 @@ for(k in 1:nrow(geo)) {
     ASHP_NG_switchover <- ((ASHP_NG_switchover_COP - heat_COP_low)/COP_slope) + 5
     ASHP_HO_switchover <- ((ASHP_HO_switchover_COP - heat_COP_low)/COP_slope) + 5
     ASHP_P_switchover <- ((ASHP_P_switchover_COP - heat_COP_low)/COP_slope) + 5
-    
-    ## heating load uses TRM's current estimate
-    heating_load <- 64.3 #total heating load of houses in WI in mmBTU/year 
     
     ## proportion of heating load covered by backup - different for each fuel 
     ## because of different switchovers first adjust the temperature_heating_bin 
@@ -406,10 +411,10 @@ for(k in 1:nrow(geo)) {
     ### meet load at much lower temperatures, are sized at 70K Btus/hour and are 
     ### assumed to be efficient (homewyse essentially allows for an efficient or
     ### inefficient option for the furnaces).
-    ASHP_installment_file <- filter(ASHP_installment_file_base, zipcode == zip)
-    AC_installment_file <- filter(AC_installment_file_base, zipcode == zip)
-    NG_P_installment_file <- filter(NG_P_installment_file_base, zipcode == zip)
-    HO_installment_file <- filter(HO_installment_file_base, zipcode == zip)
+    ASHP_installment_file <- filter(ASHP_installment_file_base, price_region == price_region)[1,]
+    AC_installment_file <- filter(AC_installment_file_base, price_region == price_region)[1,]
+    NG_P_installment_file <- filter(NG_P_installment_file_base, price_region == price_region)[1,]
+    HO_installment_file <- filter(HO_installment_file_base, price_region == price_region)[1,]
     
     # nonlabor cost of installing an ASHP in dollars per unit 
     ASHP_nonlabor_installment_cost <- runif(1, min = ASHP_installment_file$systemcost_low, max = ASHP_installment_file$systemcost_high) 
@@ -627,7 +632,7 @@ for(k in 1:nrow(geo)) {
       ###cost variables
       #fuel cost in 2020 $/mmBTU from EIA projections for year j
       electricity_price <- electricity_heating_cost*fuel_cost_growth_rates[j, which(str_detect(colnames(fuel_cost_growth_rates), "Electricity"))]
-      naturalgas_price <- ng_heating_cost*fuel_cost_growth_rates[j, which(str_detect(colnames(fuel_cost_growth_rates), "Gas"))] 
+      naturalgas_price <- projections[j, which(str_detect(colnames(fuel_cost_growth_rates), "Gas"))] 
       heatingoil_price <- projections[j, which(str_detect(colnames(projections), "Oil"))] 
       propane_price <- projections[j, which(str_detect(colnames(projections), "Propane"))] 
       
@@ -816,8 +821,11 @@ for(k in 1:nrow(geo)) {
     #   sum(track_years$ASHP_HO_emissions)
     # track_emissions_and_private[i, "ASHP_P_emissions"] <-
     #   sum(track_years$ASHP_P_emissions)
-    print(i)
-  }
+    }
+  geo$mean_NG <- mean(track_trials$ASHP_NG - track_trials$NG)
+  geo$mean_HO <- mean(track_trials$ASHP_HO - track_trials$HO)
+  geo$mean_P <- mean(track_trials$ASHP_P - track_trials$P)
+  print(k)
 }
 
 ## results
