@@ -262,7 +262,7 @@ colnames(weights_base)[1] <- "Month"
 elec_cost_base <- read.csv("./final electricity data.csv")
 
 # heating load
-heating_load_base <- read.csv("./heating load data/heating load by county.csv")
+heating_load_base <- read.csv("./NREL data/heating load/heating load by county.csv")
 
 ### natural gas
 #natgas_cost_base <- read.csv("nat. gas cost, monthly averages.csv")
@@ -305,7 +305,7 @@ geo <- mutate(geo, elec_utility = ifelse(FID_WI_MUNI_UTILITY_BOUNDARIES_ != -1, 
 
 
 
-for(k in 1:nrow(geo)) {
+for(k in 30:nrow(geo)) {
   county <- geo[k,]$FIPS
   price_region <- geo[k,]$price_region
   elec_utility <- geo[k,]$elec_utility
@@ -836,6 +836,8 @@ for(k in 1:nrow(geo)) {
   geo[k,]$perc_HO <- mean(track_trials$HO_dif > 0)
   geo[k,]$perc_P <- mean(track_trials$P_dif > 0)
   print(paste0("geo:", k))
+  write.csv(geo, "temporary save.csv", row.names = F)
+  gc()
 }
 
 ## results
@@ -856,23 +858,23 @@ for(k in 1:nrow(geo)) {
 # mean(track_trials$ASHP_HO)
 # mean(track_trials$ASHP_P)
 
-## differences between systems per trial
-track_trials$NG_dif <- track_trials$NG - track_trials$ASHP_NG
-track_trials$HO_dif <- track_trials$HO - track_trials$ASHP_HO
-track_trials$P_dif <- track_trials$P - track_trials$ASHP_P
-
-# means of differences between systems
-mean_NGdif <- mean(track_trials$NG_dif)
-mean_HOdif <- mean(track_trials$HO_dif)
-mean_Pdif <- mean(track_trials$P_dif)
-mean_NGdif
-mean_HOdif
-mean_Pdif
-
-## proportion positive differences between systems
-mean(track_trials$NG_dif > 0)
-mean(track_trials$HO_dif > 0)
-mean(track_trials$P_dif > 0)
+# ## differences between systems per trial
+# track_trials$NG_dif <- track_trials$NG - track_trials$ASHP_NG
+# track_trials$HO_dif <- track_trials$HO - track_trials$ASHP_HO
+# track_trials$P_dif <- track_trials$P - track_trials$ASHP_P
+# 
+# # means of differences between systems
+# mean_NGdif <- mean(track_trials$NG_dif)
+# mean_HOdif <- mean(track_trials$HO_dif)
+# mean_Pdif <- mean(track_trials$P_dif)
+# mean_NGdif
+# mean_HOdif
+# mean_Pdif
+# 
+# ## proportion positive differences between systems
+# mean(track_trials$NG_dif > 0)
+# mean(track_trials$HO_dif > 0)
+# mean(track_trials$P_dif > 0)
 
 # graphs of differences between systems
 # ggplot(track_trials, aes(NG_dif)) + geom_histogram() + 
