@@ -305,10 +305,10 @@ geo <- mutate(geo, elec_utility = ifelse(FID_WI_MUNI_UTILITY_BOUNDARIES_ != -1, 
 
 
 
-main <- function(rowval){
-  county <- rowval$FIPS
-  price_region <- rowval$price_region
-  elec_utility <- rowval$elec_utility
+for(k in 1:nrow(geo))
+  county <- geo[k,]$FIPS
+  price_region <- geo[k,]$price_region
+  elec_utility <- geo[k,]$elec_utility
   ## climate zones
   climate_zone <- filter(climate_zone_base, county_fips == county)
   climate_zone <- climate_zone$Zone
@@ -829,13 +829,12 @@ main <- function(rowval){
   track_trials$NG_dif <- track_trials$NG - track_trials$ASHP_NG
   track_trials$HO_dif <- track_trials$HO - track_trials$ASHP_HO
   track_trials$P_dif <- track_trials$P - track_trials$ASHP_P
-  rowval$mean_NG <- mean(track_trials$NG_dif)
-  rowval$mean_HO <- mean(track_trials$HO_dif)
-  rowval$mean_P <- mean(track_trials$P_dif)
-  rowval$perc_NG <- mean(track_trials$NG_dif > 0)
-  rowval$perc_HO <- mean(track_trials$HO_dif > 0)
-  rowval$perc_P <- mean(track_trials$P_dif > 0)
-  #return(rowval)
+  geo[k,]$mean_NG <- mean(track_trials$NG_dif)
+  geo[k,]$mean_HO <- mean(track_trials$HO_dif)
+  geo[k,]$mean_P <- mean(track_trials$P_dif)
+  geo[k,]$perc_NG <- mean(track_trials$NG_dif > 0)
+  geo[k,]$perc_HO <- mean(track_trials$HO_dif > 0)
+  geo[k,]$perc_P <- mean(track_trials$P_dif > 0)
 }
 
 ## results
