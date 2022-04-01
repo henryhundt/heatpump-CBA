@@ -262,7 +262,7 @@ colnames(weights_base)[1] <- "Month"
 elec_cost_base <- read.csv("./final electricity data.csv")
 
 # heating load
-heating_load_base <- read.csv("./NREL data/heating load/heating load by county.csv")
+heating_load_base <- read.csv("./NREL data/heating and cooling load/heating load by county.csv")
 
 ### natural gas
 #natgas_cost_base <- read.csv("nat. gas cost, monthly averages.csv")
