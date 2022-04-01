@@ -239,12 +239,9 @@ fuel_cost_growth_rates_base <- as.data.frame(t(apply(projections_base, 1, functi
 ASHP_COPs <- read.csv("ASHP random sample.csv")
 ASHP_COPs <- select(ASHP_COPs, starts_with("cop"))
 
-## climate zones
-climate_zone_base <- read.csv("./Temperature Data/HDD zones by county.csv")
-
 ## Annual temperatures
 ## source: https://www.ncei.noaa.gov/access/search/data-search/normals-hourly-2006-2020
-temperature_bin_hours_base <- read.csv("./Temperature Data/2020 15 year temp normals in WI by 11 HDD zones.csv")
+temperature_bin_hours_base <- read.csv("./NREL Data/typical meteorological year weather/temperature data by county.csv")
 
 ## indoor design temperature
 #source: https://focusonenergy.com/sites/default/files/bpdeemedsavingsmanuav10_evaluationreport.pdf
@@ -262,7 +259,10 @@ colnames(weights_base)[1] <- "Month"
 elec_cost_base <- read.csv("./final electricity data.csv")
 
 # heating load
-heating_load_base <- read.csv("./NREL data/heating load/heating load by county.csv")
+heating_load_base <- read.csv("./NREL data/heating and cooling load/heating load by county.csv")
+
+# cooling kWh
+cooling_kWh_base <- read.csv("./NREL data/heating and cooling load/cooling kWh by county.csv")
 
 ### natural gas
 #natgas_cost_base <- read.csv("nat. gas cost, monthly averages.csv")
@@ -309,10 +309,7 @@ for(k in 1:nrow(geo))
   county <- geo[k,]$FIPS
   price_region <- geo[k,]$price_region
   elec_utility <- geo[k,]$elec_utility
-  ## climate zones
-  climate_zone <- filter(climate_zone_base, county_fips == county)
-  climate_zone <- climate_zone$Zone
-
+  
   #temperature bins
   temperature_bin_hours <- filter(temperature_bin_hours_base, county == county)
   temperature_bin_hours <- select(temperature_bin_hours, temperature)
@@ -325,6 +322,10 @@ for(k in 1:nrow(geo))
   # heating load
   heating_load <- select(heating_load_base, contains(as.character(county)))
   heating_load <- sum(heating_load[,1])
+  
+  # cooling kWh
+  cooling_kWh <- select(cooling_kWh_base, contains(as.character(county)))
+  cooling_kWh <- sum(cooling_kWh[,1])
   
   # electricity cost
   elec_cost <- filter(elec_cost_base, Utility.ID == elec_utility)
@@ -467,8 +468,6 @@ for(k in 1:nrow(geo))
                                       heating_bin_hours, ASHP_P_switchover, TRUE)
     
     #### calculate input for all heating types + cooling 
-    ## cooling load is in kWh and is an average for the state
-    cooling_input <- 1011
     # the rest are all in mmBTUs 
     ASHP_NG_input <- ASHP_NG_heating/ASHP_NG_heating_ASHP_COP
     ASHP_HO_input <- ASHP_HO_heating/ASHP_HO_heating_ASHP_COP
@@ -685,7 +684,7 @@ for(k in 1:nrow(geo))
       
       ################# Calculations section ###############
       ####Calculate heating costs for all heating types
-      cooling_fuel_cost <- cooling_input*mmBTU_per_kWh*electricity_price
+      cooling_fuel_cost <- cooling_kWh*mmBTU_per_kWh*electricity_price
       ASHP_NG_fuel_cost <- ASHP_NG_input*electricity_price + cooling_fuel_cost
       ASHP_HO_fuel_cost <- ASHP_HO_input*electricity_price + cooling_fuel_cost
       ASHP_P_fuel_cost <- ASHP_P_input*electricity_price + cooling_fuel_cost
@@ -709,7 +708,7 @@ for(k in 1:nrow(geo))
       # is responsible for the line loss as well.
       line_loss <- 0.05
       #### Calculate emissions for all heating types and monetize with social carbon costs
-      cooling_emissions_cost <- (cooling_input*mmBTU_per_kWh*electricity_CO2e)*
+      cooling_emissions_cost <- (cooling_kWh*mmBTU_per_kWh*electricity_CO2e)*
         (1+line_loss)*social_cost_of_CO2
       ASHP_NG_emissions_cost <- (ASHP_NG_input*electricity_CO2e)*(1+line_loss)*
         social_cost_of_CO2 + cooling_emissions_cost
