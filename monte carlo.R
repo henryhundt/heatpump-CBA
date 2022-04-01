@@ -295,17 +295,15 @@ heatingoil_furnace_efficiency <- .9
 propane_furnace_efficiency <- .9
 
 ### clean the spatial dataset and determine which electric utility's data to use
-geo <- filter(geo, AnalysisArea > 0.5)
+geo <- filter(geo, Area.in.Square.Miles > 0.5)
 geo <- filter(geo, !is.na(FIPS))
 geo <- filter(geo, !(FID_COOP_UTILITY_BOUNDARIES_COO == -1 & FID_WI_IOU_UTILITY_BOUNDARIES_W == -1 & FID_WI_MUNI_UTILITY_BOUNDARIES_ == -1))
 ## we assume that the hierarchy of electricity usage is municipality >> coop >> IOU
 geo <- mutate(geo, elec_utility = ifelse(FID_WI_MUNI_UTILITY_BOUNDARIES_ != -1, PSC_ID, 
                                     ifelse(FID_COOP_UTILITY_BOUNDARIES_COO != -1, 
-                                           PSC_ID_1, PSC_ID_12)))
+                                           PSC_ID.1, PSC_ID.2)))
 
-
-
-for(k in 30:nrow(geo)) {
+for(k in 1:nrow(geo)) {
   county <- geo[k,]$FIPS
   price_region <- geo[k,]$price_region
   elec_utility <- geo[k,]$elec_utility
