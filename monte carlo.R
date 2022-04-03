@@ -838,6 +838,20 @@ for(k in 1:nrow(geo)) {
   gc()
 }
 
+
+census <- read.csv("R13086861_SL050 (1).csv")
+census$FIPS <- as.integer(census$FIPS)
+
+geo <- left_join(geo, census, by = "FIPS")
+
+geo$perc_households_NG <- as.integer(geo$Total..Utility.Gas)/as.integer(geo$Total)
+geo$perc_households_P <- as.integer(geo$Total..Bottled.Tank.or.Lp.Gas)/as.integer(geo$Total)
+geo$perc_households_HO <- as.integer(geo$Total..Fuel.Oil.Kerosene.Etc.)/as.integer(geo$Total)
+
+geo$perc_households_positive <- geo$perc_households_HO*geo$perc_HO + geo$perc_households_NG*geo$perc_NG + geo$perc_households_P*geo$perc_P
+
+write.csv(geo, "final results.csv", row.names = F)
+
 ## results
 #install.packages("ggplot2")
 # library(ggplot2)
