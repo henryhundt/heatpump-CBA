@@ -331,7 +331,9 @@ for(k in 1:nrow(geo))
   elec_cost <- filter(elec_cost_base, Utility.ID == elec_utility)
   weights <- filter(weights_base, zone == climate_zone)
   elec_cost <- left_join(elec_cost, weights, by = "Month")
-  electricity_heating_cost <- sum(elec_cost$Month*elec_cost$Rate)  
+  electricity_heating_cost <- sum(elec_cost$proportion*elec_cost$Rate)  
+  #convert from $/kWh to $/mmBTU
+  electricity_heating_cost <- electricity_heating_cost/3412*10^6
   
   ### keeps track of monte carlo results
   track_trials <- data.frame(n = c(1:n_trials), NG = 0, HO = 0, P = 0, ASHP_NG = 0,
