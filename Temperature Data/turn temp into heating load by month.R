@@ -1,4 +1,4 @@
-setwd("~/Desktop/ENV 810/Data/Temp")
+setwd("~/Documents/GitHub/heatpump-CBA/Temperature Data")
 
 library(dplyr)
 library(stringr)

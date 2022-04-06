@@ -852,6 +852,8 @@ geo$perc_households_HO <- as.integer(geo$Total..Fuel.Oil.Kerosene.Etc.)/as.integ
 
 geo$perc_households_positive <- geo$perc_households_HO*geo$perc_HO + geo$perc_households_NG*geo$perc_NG + geo$perc_households_P*geo$perc_P
 
+select(geo, contains("perc_"), contains("mean_"), NAME, FIPS)
+
 write.csv(geo, "final results.csv", row.names = F)
 
 ## results
