@@ -127,8 +127,8 @@ annual_COP <- function(COP_low, COP_high, temperature_bin_hours,
                        switchover_temp, heating_yes){
   ## for heating, remove temperature bin data covered by backup heating
   if(heating_yes){
-    if(switchover_temp >= 65) return(1)
     temperature_bin_hours <- filter(temperature_bin_hours, HLY.TEMP.NORMAL > switchover_temp)
+    if(nrow(temperature_bin_hours) == 0) return(1)
   }
   
   #calculate the slope of the COP at which COP changes with temperature
