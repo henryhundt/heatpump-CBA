@@ -841,7 +841,7 @@ for(k in 1:nrow(geo)) {
 }
 
 
-census <- read.csv("R13086861_SL050 (1).csv")
+census <- read.csv("county fuel type data.csv")
 census$FIPS <- as.integer(census$FIPS)
 
 geo <- left_join(geo, census, by = "FIPS")
