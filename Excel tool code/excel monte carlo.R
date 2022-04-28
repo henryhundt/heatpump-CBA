@@ -296,7 +296,6 @@ final <- data.frame(NG_cool_NB = 0, NG_cool_NB_capital = 0, NG_cool_NB_MO = 0, N
                     ElecRes_nocool_NB = 0, ElecRes_nocool_NB_capital = 0, ElecRes_nocool_NB_MO = 0, ElecRes_nocool_NB_emissions = 0, ElecRes_nocool_private = 0, ElecRes_nocool_CO2e = 0,
                     wood_cool_NB = 0, wood_cool_NB_capital = 0, wood_cool_NB_MO = 0, wood_cool_NB_emissions = 0, wood_cool_private = 0, wood_cool_CO2e = 0,
                     wood_nocool_NB = 0, wood_nocool_NB_capital = 0, wood_nocool_NB_MO = 0, wood_nocool_NB_emissions = 0, wood_nocool_private = 0, wood_nocool_CO2e = 0)
-k <- 1
 
 for(k in 1:length(heating_steps)){
   heating_load <- heating_steps[k]
@@ -714,20 +713,20 @@ for(k in 1:length(heating_steps)){
       ASHP_HO_fuel_cost <- ASHP_HO_input*electricity_price
       ASHP_P_fuel_cost <- ASHP_P_input*electricity_price
       ASHP_ElecRes_fuel_cost <- ASHP_ElecRes_input*electricity_price
-      ASHP_WoodCord_fuel_cost <- ASHP_WoodCord_input*electricity_price
-      ASHP_WoodPellet_fuel_cost <- ASHP_WoodPellet_input*electricity_price
+      ASHP_WoodCord_fuel_cost <- ASHP_WoodCord_input*wood_cord_cost
+      ASHP_WoodPellet_fuel_cost <- ASHP_WoodPellet_input*wood_pellet_cost
       backup_naturalgas_fuel_cost <-  backup_NG_input*naturalgas_price
       backup_heatingoil_fuel_cost <- backup_HO_input*heatingoil_price
       backup_propane_fuel_cost <- backup_P_input*propane_price
       backup_ElecRes_fuel_cost <- backup_ElecRes_input*electricity_price
-      backup_WoodCord_fuel_cost <- backup_WoodCord_input*electricity_price
-      backup_WoodPellet_fuel_cost <- backup_WoodPellet_input*electricity_price
+      backup_WoodCord_fuel_cost <- backup_WoodCord_input*wood_cord_cost
+      backup_WoodPellet_fuel_cost <- backup_WoodPellet_input*wood_pellet_cost
       full_naturalgas_fuel_cost <- full_NG_input*naturalgas_price
       full_heatingoil_fuel_cost <- full_HO_input*heatingoil_price
       full_propane_fuel_cost <- full_P_input*propane_price
       full_ElecRes_fuel_cost <- full_ElecRes_input*electricity_price
-      full_WoodCord_fuel_cost <- full_WoodCord_input*electricity_price
-      full_WoodPellet_fuel_cost <- full_WoodPellet_input*electricity_price
+      full_WoodCord_fuel_cost <- full_WoodCord_input*wood_cord_cost
+      full_WoodPellet_fuel_cost <- full_WoodPellet_input*wood_pellet_cost
       
       # all electric emissions account for line loss, the % of electricity lost
       # from production to end-source. Since producers account for line-loss in their
@@ -812,7 +811,6 @@ for(k in 1:length(heating_steps)){
       track_years[track_years$n == j, "ASHP_P"] <- ASHP_P/(1+discount_rate)^j
       track_years[track_years$n == j, "ASHP_ElecRes"] <- ASHP_ElecRes/(1+discount_rate)^j
       track_years[track_years$n == j, "ASHP_WoodCord"] <- ASHP_WoodCord/(1+discount_rate)^j
-      track_years[track_years$n == j, "ASHP_WoodPellet"] <- ASHP_WoodPellet/(1+discount_rate)^j
       track_years[track_years$n == j, "ASHP_WoodPellet"] <- ASHP_WoodPellet/(1+discount_rate)^j
       track_years[track_years$n == j, "AC"] <- AC/(1+discount_rate)^j
       
@@ -1008,9 +1006,12 @@ for(k in 1:length(heating_steps)){
   final[k,"wood_nocool_private"] <- final[k,"wood_nocool_NB_capital"] + final[k,"wood_nocool_NB_MO"]
   final[k,"wood_nocool_CO2e"] <- (mean(track_trials$ASHP_WoodCord_emissions) + mean(track_trials$ASHP_WoodPellet_emissions))/2 - ((mean(track_trials$WoodCord_emissions) + mean(track_trials$WoodPellet_emissions))/2)
   final[k,] <- final[k,]*-1
+  row.names(final)[k] <- heating_load
   print(k)
 }
 
+
+write.csv(final, "./Excel tool code/final.csv")
 ## results
 #install.packages("ggplot2")
 #library(ggplot2)
