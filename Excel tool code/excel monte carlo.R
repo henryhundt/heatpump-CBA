@@ -252,7 +252,9 @@ decarb_year <- 2050 #BAU
 projections_base <- read.csv("./Fuel cost data/EIA projections/Energy_Prices_Residential_projections.csv")
 #changes order so first row is the start year
 projections_base <- arrange(projections_base, year) 
-projections_base <- projections_base[c(1:years_of_analysis),]
+start <- which(projections_base$year == start_year)
+end <- start + years_of_analysis - 1
+projections_base <- projections_base[c(start:end),]
 
 #### read in list of ASHP COPs
 ASHP_COPs <- read.csv("ASHP random sample.csv", stringsAsFactors = F)
