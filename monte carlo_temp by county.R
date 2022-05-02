@@ -934,7 +934,9 @@ for(k in 1:nrow(geo)) {
     track_trials[i, "ASHP_WoodCord_emissions"] <- sum(track_years$ASHP_WoodCord_emissions_cost)/social_cost_of_CO2
     track_trials[i, "ASHP_WoodPellet_emissions"] <- sum(track_years$ASHP_WoodPellet_emissions_cost)/social_cost_of_CO2
     track_trials[i, "AC_emissions"] <- sum(track_years$AC_emissions_cost)/social_cost_of_CO2
-  }
+    }
+  geo[k, "heating_load"] <- heating_load
+  geo[k, "cooling_load"] <- cooling_kWh
   geo[k,"NG_cool_NB"] <- mean(track_trials$ASHP_NG) - (mean(track_trials$NG) + mean(track_trials$AC))
   geo[k,"NG_cool_NB_capital"] <- mean(track_trials$ASHP_NG_capital) - (mean(track_trials$NG_capital) + mean(track_trials$AC_capital))
   geo[k,"NG_cool_NB_MO"] <- mean(track_trials$ASHP_NG_MO) - (mean(track_trials$NG_MO) + mean(track_trials$AC_MO))
