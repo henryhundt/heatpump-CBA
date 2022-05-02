@@ -36,7 +36,7 @@ heatingbin_adjust <- function(indoor_design_temperature, outdoor_design_temperat
                               temperature_bin_hours){
   ## reduce the temperature bin hours dataset to just the temperature bins that 
   ## we will consider for our calculations
-  temperature_bin_hours <- filter(temperature_bin_hours, HLY.TEMP.NORMAL < indoor_design_temperature)
+  temperature_bin_hours <- filter(temperature_bin_hours, temperature < indoor_design_temperature)
   
   ## calculates the distance between outdoor design temp and when design 
   ## heating load reaches 0 (aka indoor design temperature), also could be thought 
@@ -69,56 +69,26 @@ heatingbin_adjust <- function(indoor_design_temperature, outdoor_design_temperat
   ## Therefore, the result that we find in the "load_proportion" variable is simply the constant on b
   ## in the above equation, i.e. (temperature_distance - x)/temperature_distance
 
-  temperature_bin_hours$distance <- temperature_bin_hours$HLY.TEMP.NORMAL - outdoor_design_temperature
+  temperature_bin_hours$distance <- temperature_bin_hours$temperature - outdoor_design_temperature
   temperature_bin_hours$load_proportion <- (temperature_distance-temperature_bin_hours$distance)/temperature_distance
+  
+  ## heating technology is generally not installed to function at below the outdoor design temp
+  ## so when such temperatures do occur, the technology can at best run at 100% capacity. As such
+  ## we set their proportion of the design heating load to 1
+  temperature_bin_hours <- mutate(temperature_bin_hours, load_proportion = 
+                                    ifelse(load_proportion > 1, 1, load_proportion))
   
   return(temperature_bin_hours)
 }
 
 ## calculate the proportion of heating that is covered by the backup system
 ## given a switchover temperature
-backupheatingload <- function(heating_bin_hours, switchover_temp){
-  backup <- filter(heating_bin_hours, HLY.TEMP.NORMAL < switchover_temp)
+backupheatingload <- function(heating_bin_hours, switchover_temp, heating_load){
+  backup <- filter(heating_bin_hours, temperature < switchover_temp)
   total_prop <- sum(heating_bin_hours$load_proportion)
   backup_prop <- sum(backup$load_proportion)
   return(heating_load*backup_prop/total_prop)
 }
-
-# ## this function's purpose is just to create a "temperature_bin_hours" data frame
-# ## that can be passed to the annual_COP function below to calculate average 
-# ## cooling COP. 
-# cooling_load_proportion <- function(indoor_design_temperature, 
-#                                     temperature_bin_hours){
-#   
-#   #remove temperature bins that don't require cooling
-#   low <- which(str_detect(temperature_bin_hours$Temperature.Range, 
-#                           paste0(indoor_design_temperature, " to ")))
-#   temperature_bin_hours <- temperature_bin_hours[c(1:low),]
-#   
-#   # calculate distance between highest temperature and indoor design temp
-#   temperature_distance = low*5
-#   
-#   # now calculate the COP weighted by amount of cooling that needs to be
-#   # provided in each temperature bin hour
-#   temperature_bin_hours$load_proportion <- 0
-#   temperature_bin_hours[1, "load_proportion"] <- 
-#     temperature_bin_hours[1, "Weighted.Average"]
-#   # from above, the "5" comes from the size of the temperature bin
-#   # the two comes from the fact that it's an average of two numbers
-#   proportion = 1
-#   denominator <- temperature_distance/5*2
-#   for(i in (2):low){
-#     temperature_bin_hours[i, "load_proportion"] <- 
-#       temperature_bin_hours[i, "Weighted.Average"] * (1-proportion/denominator)
-#     proportion <- proportion + 2
-#   }
-#   
-#   # we flip the order of the cooling bin hours dataframe so that it fits
-#   # the code of the COP function better
-#   temperature_bin_hours <- map_df(temperature_bin_hours, rev)
-#   
-#   return(temperature_bin_hours)
-# }
 
 # calculate the average COP of the ASHP for cooling and for heating 
 # for heating, it uses COP values at 5 and 65 degrees Fahrenheit
@@ -128,7 +98,7 @@ annual_COP <- function(COP_low, COP_high, temperature_bin_hours,
   ## for heating, remove temperature bin data covered by backup heating
   if(heating_yes){
     if(switchover_temp >= 65) return(1)
-    temperature_bin_hours <- filter(temperature_bin_hours, HLY.TEMP.NORMAL > switchover_temp)
+    temperature_bin_hours <- filter(temperature_bin_hours, temperature > switchover_temp)
   }
   
   #calculate the slope of the COP at which COP changes with temperature
@@ -143,7 +113,7 @@ annual_COP <- function(COP_low, COP_high, temperature_bin_hours,
   ## set COP_high to be the COP at 65 degrees
   if(heating_yes){
     COP_high <- COP_high + COP_slope*(65-47)
-    temperature_bin_hours$COP <- COP_high - COP_slope*(65-temperature_bin_hours$HLY.TEMP.NORMAL)
+    temperature_bin_hours$COP <- COP_high - COP_slope*(65-temperature_bin_hours$temperature)
   } else{
     COP_high <- COP_high + COP_slope*(82-65)
     TKTK
@@ -173,6 +143,14 @@ methane_leak <- function(input, methane_leakage_rate, energy_rate, density){
   return(methane_leaked*GWP_CH4)
 }
 
+installment_costs <- function(df, nonmaterial_costs) {
+  material_cost <-  runif(1, min = df$systemcost_low, max = df$systemcost_high) 
+  nonmaterial_low <- df$laborcost_low + df$jobsupplycost_low
+  nonmaterial_high <- df$laborcost_high + df$jobsupplycost_high
+  nonmaterial_cost <- nonmaterial_low + nonmaterial_costs*nonmaterial_high
+  return(material_cost + nonmaterial_cost)
+}
+
 ############### end of functions ##########################################
 
 #################### set key variables #####################
@@ -186,7 +164,8 @@ GWP_N2O <- 265
 #### monte carlo variables
 set.seed(1111) 
 n_trials <- 1000
-years_of_analysis <- 15 ### 2021-2035
+years_of_analysis <- 15
+start_year <- 2022
 
 #### set scenario variables ####
 ### comment out the ones that you don't want to use
@@ -194,13 +173,6 @@ years_of_analysis <- 15 ### 2021-2035
 #discount_rate <- 0.07
 discount_rate <- 0.02
 #discount_rate <- 0.0
-
-## determine whether just the heat pumps heating should be considered or
-## also it's cooling. If cooling is included, then the baseline scenario will 
-## include the cost of installing a new AC and the fuel cost of covering
-## the cooling load. 
-#cooling <- T # yes cooling
-cooling <- F # no cooling
 
 ## determine carbon intensity of the grid
 #### does so by specifying the year when the grid will have 0 emissions
@@ -217,18 +189,16 @@ decarb_year <- 2050 #BAU
 #### read in the geographic dataframe:
 ## counties
 geo <- read.csv("./creating geographic data set/county_installprice_all_elec.csv")
-geo$mean_NG <- 0
-geo$mean_HO <- 0
-geo$mean_P <- 0
-geo$perc_NG <- 0
-geo$perc_HO <- 0
-geo$perc_P <- 0
 
 #### read in and set up price projections for later
-### values from EIA's projected costs of fuel/electricity over time. 
-projections_base <- read.csv("Energy_Prices_Residential_projections.csv", skip = 4)
+### values from EIA's projected costs of fuel/electricity over time.
+### source: https://www.eia.gov/outlooks/aeo/data/browser/#/?id=3-AEO2022&sourcekey=0
+projections_base <- read.csv("./Fuel cost data/EIA projections/Energy_Prices_Residential_projections.csv")
 #changes order so first row is year 1 (i.e. 2021)
-projections_base <- arrange(projections_base, Year)
+projections_base <- arrange(projections_base, year)
+start <- which(projections_base$year == start_year)
+end <- start + years_of_analysis - 1
+projections_base <- projections_base[c(start:end),]
 ## convert to growth rates instead of absolute numbers
 ## keep the projections_base data since we will use it for areas for which we don't
 ## have spatial data 
@@ -236,10 +206,11 @@ base <- projections_base[1,]
 fuel_cost_growth_rates_base <- as.data.frame(t(apply(projections_base, 1, function(rowval) unlist(rowval / base))))
 
 #### read in list of ASHP COPs
+TKTKTK #update this? with the scraped data?
 ASHP_COPs <- read.csv("ASHP random sample.csv")
 ASHP_COPs <- select(ASHP_COPs, starts_with("cop"))
 
-## Annual temperatures
+## temperature and load data
 ## source: https://www.ncei.noaa.gov/access/search/data-search/normals-hourly-2006-2020
 temperature_bin_hours_base <- read.csv("./NREL Data/typical meteorological year weather/temperature data by county.csv")
 
@@ -251,10 +222,6 @@ indoor_design_temperature <- 65 #degrees Fahrenheit
 #source: https://casetext.com/regulation/wisconsin-administrative-code/agency-department-of-safety-and-professional-services/safety-buildings-and-environment/commercial-building-code/chapter-sps-363-energy-conservation/subchapter-ii-changes-additions-or-omissions-to-the-international-energy-conservation-code-iecc/section-sps-3630302-exterior-design-conditions
 outdoor_design_temperature_base <- read.csv("./Temperature Data/Outdoor design temps by county.csv")
 
-### weights for calculating annual fuel costs
-weights_base <- read.csv("./Temperature Data/HDD Proportions by Month by Climate Zone Using 2020 15 Year Normals.csv")
-colnames(weights_base)[1] <- "Month"
-
 ## electricity
 elec_cost_base <- read.csv("./final electricity data.csv")
 
@@ -264,13 +231,9 @@ heating_load_base <- read.csv("./NREL data/heating and cooling load/heating load
 # cooling kWh
 cooling_kWh_base <- read.csv("./NREL data/heating and cooling load/cooling kWh by county.csv")
 
-### natural gas
-#natgas_cost_base <- read.csv("nat. gas cost, monthly averages.csv")
-#colnames(natgas_cost_base)[1] <- "month"
-
 ## not to keep
 ### installation sizing and efficiency 
-### TKTKTK
+TKTKTK
 size <- 2
 efficiency <- 16
 
@@ -280,38 +243,165 @@ efficiency <- 16
 # NG: https://www.homewyse.com/costs/cost_of_energy_efficient_gas_furnaces.html
 # HO: https://www.homewyse.com/costs/cost_of_oil_furnaces.html
 # P: https://www.homewyse.com/costs/cost_of_energy_efficient_gas_furnaces.html
-# AC: https://www.homewyse.com/costs/cost_of_central_air_conditioning_systems.html
+# ElecRes: https://www.homewyse.com/costs/cost_of_electric_baseboard_heaters.html
 
 ASHP_installment_file_base <- read.csv(paste0("./Installation costs/cost to install heat pump - ",size," ton ", efficiency, " SEER.csv"))
+## after receiving feedback from PSC that questioned the Homewyse values, we chose
+## to allow AC installment nonmaterial costs to equal ASHP installment costs.
 AC_installment_file_base <- read.csv(paste0("./Installation costs/cost to install AC - ",size," ton ", efficiency, " SEER.csv"))
+AC_installment_file_base[,c(6:9)] <- ASHP_installment_file_base[,c(6:9)]
 NG_P_installment_file_base <- read.csv(paste0("./Installation costs/cost to install NG furnace - 70K BTU 92%+ efficiency.csv"))
 HO_installment_file_base <- read.csv(paste0("./Installation costs/cost to install oil furnace - 70K BTU 85%+ efficiency.csv"))
+ElecRes_installment_file_base <- read.csv("./Installation costs/cost to install 2 electric resistance baseboards.csv")
 
 ###efficiency variables - note that efficiency is a unitless value
 # this can be thought of as the average efficiency of whichever furnace across
 # users in Wisconsin
-naturalgas_furnace_efficiency <- .95 
-heatingoil_furnace_efficiency <- .9
-propane_furnace_efficiency <- .9
+## source is the "typical" 2020 efficiency for the respective technologies from
+## here: https://www.eia.gov/analysis/studies/buildings/equipcosts/pdf/appendix-a.pdf
+## electric resistance efficiency comes from the text after the table
+naturalgas_furnace_efficiency <- .92
+heatingoil_furnace_efficiency <- .83
+propane_furnace_efficiency <- .92
+ElecRes_efficiency <- .98
+wood_pellet_efficiency <- .77
+wood_cord_efficiency <- .78
+
+## wood prices - source: https://fyi.extension.wisc.edu/energy/files/2018/07/wood_heating_appliances_for_homes_and_businesses-1.pdf
+## Also, EIA prices are given in 2021 $/mmBTU and we assume that wood prices will
+## rise with inflation but have no information to lead them to change otherwise.
+## therefore, we leave them to be the same throughout since having all prices at 2021 $/mmBTU
+## means we don't need to account for inflation
+wood_cord_cost <- 225 #2013 $/cord of wood
+wood_cord_cost <- wood_cord_cost*1.16 #adjusted for inflation from 2013 to 2021: https://www.officialdata.org/us/inflation/2013?endYear=2021&amount=1
+wood_cord_cost <- wood_cord_cost/22 #2021 $/mmBTU
+wood_pellet_cost <- 190 #2013 $/ton of wood pellets
+wood_pellet_cost <- wood_pellet_cost*1.16 #adjusting for inflation like above
+wood_pellet_cost <- wood_pellet_cost/15.4 #2021 $/mmBTU
+
+## wood heating installment costs come from eia. We assume they are the typical
+## total installment costs in 2020 from the following source:
+## url: https://www.eia.gov/analysis/studies/buildings/equipcosts/pdf/appendix-a.pdf
+wood_cord_installment_cost <- 7600
+wood_pellet_installment_cost <- 4700
+
+###emissions variables (fuel data from https://www.epa.gov/sites/default/files/2021-04/documents/emission-factors_apr2021.pdf)
+### WI grid specific electricity grid data is from https://www.epa.gov/system/files/documents/2022-01/egrid2020_summary_tables.pdf
+#CO2
+## CO2 associated with electricity being used for heating in pounds of CO2/MWh
+electricity_CO2 <- 1184.9
+## CO2 from burning natural gas in a furnace in kg of CO2 per mmBTU
+naturalgas_CO2 <- 53.06 
+## CO2 from burning heating oil (Distillate Fuel Oil No. 2) in a furnace in kg of CO2 per mmBTU
+heatingoil_CO2 <- 73.96 
+## CO2 from burning propane in a furnace in kg of CO2 per mmBTU
+propane_CO2 <- 62.87 
+## CO2 from burning wood (Wood and Wood Residuals)
+wood_CO2 <- 93.80
+
+#CH4
+# CH4 associated with electricity being used for heating in lb of CH4/MWh
+electricity_CH4 <- 0.106
+# CH4 from burning natural gas in a furnace in kg of CH4 per mmBTU
+naturalgas_CH4 <- 1/1000
+# CH4 from burning heating oil (Distillate Fuel Oil No. 2) in a furnace in kg of CH4 per mmBTU
+heatingoil_CH4 <- 3/1000
+# CH4 from burning propane in a furnace in kg of CH4 per mmBTU
+propane_CH4 <- 3/1000
+## CH4 from burning wood
+wood_CH4 <- 7.2/1000
+
+#N2O
+# N2O associated with electricity being used for heating in pounds of N2O/MWh
+electricity_N2O <- 0.015
+# N2O from burning natural gas in a furnace in kg of N2O per mmBTU
+naturalgas_N2O <- 0.1/1000
+# N2O from burning heating oil (Distillate Fuel Oil No. 2) in a furnace in kg of N2O per mmBTU
+heatingoil_N2O <- 0.6/1000
+# N2O from burning propane in a furnace in kg of N2O per mmBTU
+propane_N2O <- 0.6/1000
+## N2O from burning wood
+wood_N2O <- 3.6/1000
+
+### decarbonization rate of the grid
+#2020 is the year from which our grid emissions values come from
+decarb <- 1/(decarb_year - 2020) 
+
+## energy to volume constants
+mmBTU_per_cubic_ft_NG <- 0.001026 #source: https://www.epa.gov/sites/default/files/2021-04/documents/emission-factors_apr2021.pdf
+mmBTU_per_gallon_HO <- 0.138 #source: https://www.epa.gov/sites/default/files/2021-04/documents/emission-factors_apr2021.pdf
+mmBTU_per_gallon_P <- 0.091 #source: https://www.epa.gov/sites/default/files/2021-04/documents/emission-factors_apr2021.pdf
+## volume to weight - if not specified, source: https://cngcenter.com/wp-content/uploads/2013/09/UnitsAndConversions.pdf
+NG_density <- 0.717 #kg/m^3
+m3_to_ft3 <- 35.3 #ft^3/m^3 
+cubic_ft_NG_to_kg <- NG_density/m3_to_ft3 #kg/ft^3
+HO_density <- 0.87 #kg/L source: https://henrycounty.in.gov/DocumentCenter/View/318/Fuel-Oil-Number-2-PDF
+liter_to_gallon <- 0.26 #gal/L
+gallon_HO_to_kg <- HO_density/liter_to_gallon
+P_density <- 0.495 #kg/L @ 25 degrees Celcius, source: https://www.engineeringtoolbox.com/specific-gravity-liquids-d_336.html
+gallon_P_to_kg <- P_density/liter_to_gallon #kg/gallon, source: https://henrycounty.in.gov/DocumentCenter/View/318/Fuel-Oil-Number-2-PDF
+
+### account for life-cycle emissions with regard to electricity production
+# source: https://www.epa.gov/sites/default/files/2021-02/documents/egrid2019_summary_tables.pdf
+# static (we assume these don't change over the course of the simulation)
+proportion_electricity_from_oil <- 0.002
+proportion_electricity_from_NG <- 0.358
+proportion_electricity_from_nuclear <- 0.159
+proportion_electricity_from_hydro <- 0.045
+proportion_electricity_from_biomass <- 0.019
+# we assume that all improvements to the grid during the simulation comes
+# from the removal of coal from the grid and that it will be replaced with an
+# equal proportion of solar and wind
+proportion_electricity_from_coal <- 0.387
+proportion_electricity_from_wind <- 0.029
+proportion_electricity_from_solar <- 0.001
+
+# the above figures are from 2020, so we update them to 2021 numbers so that
+# they can be used in the iterative year for-loop below.
+# The 1.25 (1/.8) reflects the fact that coal is removed from the grid at a rate 
+# faster than the grid reaches 0 emissions (e.g. in our aggressive case, all coal 
+# is removed by 2035, but the grid still has 20% of it's original emissions)
+drop_in_coal <- proportion_electricity_from_coal*(decarb*1.25)
+## every year update the amount of energy that is now in renewables
+## we assume that all improvements in the grid come from switching coal to
+## renewables. This just updates the values to 2021
+proportion_electricity_from_coal <- proportion_electricity_from_coal - drop_in_coal
+proportion_electricity_from_wind <- proportion_electricity_from_wind + drop_in_coal/2
+proportion_electricity_from_solar <- proportion_electricity_from_solar + drop_in_coal/2
+
+# lifecycle emission rates - not including combustion emissions, where applicable,
+# since those are accounted for elsewhere
+# source: https://www.nrel.gov/docs/fy21osti/80580.pdf
+# all numbers are in kg CO2e/kWh
+biomass_lifecycle <- 52/1000
+photovoltaic_lifecycle <- 43/1000
+hydro_lifecycle <- 21/1000
+wind_lifecycle <- 13/1000
+nuclear_lifecycle <- 13/1000
+NG_lifecycle <- (0.8+71+0.02)/1000
+#the literature lacks necessary details to come up with a non-combustion 
+#life-cycle figure for oil, but the literature often applies the same value to
+#oil production emissions as to NG production emissions, so we do the same here
+#with NG
+oil_lifecycle <- NG_lifecycle 
+coal_lifecycle <- (5 + 10 + 5)/1000 # we assume that <5 is equal to 5
 
 ### clean the spatial dataset and determine which electric utility's data to use
-geo <- filter(geo, AnalysisArea > 0.5)
+geo <- filter(geo, Area.in.Square.Miles > 0.5)
 geo <- filter(geo, !is.na(FIPS))
 geo <- filter(geo, !(FID_COOP_UTILITY_BOUNDARIES_COO == -1 & FID_WI_IOU_UTILITY_BOUNDARIES_W == -1 & FID_WI_MUNI_UTILITY_BOUNDARIES_ == -1))
 ## we assume that the hierarchy of electricity usage is municipality >> coop >> IOU
 geo <- mutate(geo, elec_utility = ifelse(FID_WI_MUNI_UTILITY_BOUNDARIES_ != -1, PSC_ID, 
-                                    ifelse(FID_COOP_UTILITY_BOUNDARIES_COO != -1, 
-                                           PSC_ID_1, PSC_ID_12)))
+                                         ifelse(FID_COOP_UTILITY_BOUNDARIES_COO != -1, 
+                                                PSC_ID.1, PSC_ID.2)))
 
-
-
-for(k in 1:nrow(geo))
+for(k in 1:nrow(geo)) {
   county <- geo[k,]$FIPS
   price_region <- geo[k,]$price_region
   elec_utility <- geo[k,]$elec_utility
   
   #temperature bins
-  temperature_bin_hours <- filter(temperature_bin_hours_base, county == county)
+  temperature_bin_hours <- filter(temperature_bin_hours_base, FIPS == county)
   temperature_bin_hours <- select(temperature_bin_hours, temperature)
   temperature_bin_hours <- arrange(temperature_bin_hours, temperature)
 
@@ -321,19 +411,22 @@ for(k in 1:nrow(geo))
   
   # heating load
   heating_load <- select(heating_load_base, contains(as.character(county)))
-  heating_load <- sum(heating_load[,1])
+  total_heating <- sum(heating_load)
+  heating_load$weight <- heating_load[,1]/total_heating
   
   # cooling kWh
   cooling_kWh <- select(cooling_kWh_base, contains(as.character(county)))
-  cooling_kWh <- sum(cooling_kWh[,1])
+  cooling_kWh <- sum(cooling_kWh)
   
   # electricity cost
   elec_cost <- filter(elec_cost_base, Utility.ID == elec_utility)
-  weights <- filter(weights_base, zone == climate_zone)
-  elec_cost <- left_join(elec_cost, weights, by = "Month")
-  electricity_heating_cost <- sum(elec_cost$proportion*elec_cost$Rate)  
   #convert from $/kWh to $/mmBTU
-  electricity_heating_cost <- electricity_heating_cost/3412*10^6
+  elec_cost$Rate <- elec_cost$Rate/3412*10^6
+  
+  ## Find the annual heating electricity cost by weighting each months electricity
+  ## price by the proportion of the year's heating load
+  heating_electricity_cost <- sum(elec_cost$Rate*heating_load$weight)
+  heating_load <- sum(heating_load[,1])
   
   ### keeps track of monte carlo results
   track_trials <- data.frame(n = c(1:n_trials), NG = 0, HO = 0, P = 0, ASHP_NG = 0,
@@ -344,8 +437,8 @@ for(k in 1:nrow(geo))
     ## randomly choose what energy projections to run based on one of 10 different
     ## scenarios that EIA provides, which determines the price of all fuels/
     ## electricity over time for a given trial. (all prices are in 2020 $s/MMBTU)
-    scenario <- floor(runif(1, min = 1, max = 11))
-    columns <- c(scenario + 1, scenario + 11, scenario + 21, scenario + 31)
+    scenario <- floor(runif(1, min = 1, max = 10))
+    columns <- c(scenario, scenario + 10, scenario + 20, scenario + 30)
     projections <- projections_base[,columns]
     fuel_cost_growth_rates <- fuel_cost_growth_rates_base[,columns]
     
@@ -357,15 +450,24 @@ for(k in 1:nrow(geo))
     ### respective fuel at year 1. 
     ### we start with a COP value that is then translated into a temperature later with the use
     ### of the COP function
-    ASHP_NG_switchover_COP <- electricity_heating_cost*
+    ASHP_NG_switchover_COP <- heating_electricity_cost*
       (naturalgas_furnace_efficiency/
          projections[1,which(str_detect(colnames(projections), "Natural.Gas"))])
-    ASHP_HO_switchover_COP <- electricity_heating_cost*
+    ASHP_HO_switchover_COP <- heating_electricity_cost*
       (heatingoil_furnace_efficiency/
          projections[1,which(str_detect(colnames(projections), "Distillate.Fuel.Oil"))])
-    ASHP_P_switchover_COP <- electricity_heating_cost*
+    ASHP_P_switchover_COP <- heating_electricity_cost*
       (propane_furnace_efficiency/
          projections[1,which(str_detect(colnames(projections), "Propane"))])
+    ASHP_ElecRes_switchover_COP <- heating_electricity_cost*
+      (ElecRes_efficiency/
+         heating_electricity_cost)
+    ASHP_WoodCord_switchover_COP <- heating_electricity_cost*
+      (wood_cord_efficiency/
+         wood_cord_cost)
+    ASHP_WoodPellet_switchover_COP <- heating_electricity_cost*
+      (wood_pellet_efficiency/
+         wood_pellet_cost)
     
     #### generate heating COP values to translate switchover COP to a temperature
     ### COP values were found by taking a random sample of 10 ASHPs from the NEEP
@@ -380,9 +482,12 @@ for(k in 1:nrow(geo))
     #temperatures at which we get COP values
     COP_slope <- (heat_COP_high - heat_COP_low)/42
     #the five comes from the fact that heat_COP_low is measured at 5 degrees
-    ASHP_NG_switchover <- ((ASHP_NG_switchover_COP - heat_COP_low)/COP_slope) + 5
-    ASHP_HO_switchover <- ((ASHP_HO_switchover_COP - heat_COP_low)/COP_slope) + 5
-    ASHP_P_switchover <- ((ASHP_P_switchover_COP - heat_COP_low)/COP_slope) + 5
+    ASHP_NG_switchover <- round(((ASHP_NG_switchover_COP - heat_COP_low)/COP_slope) + 5,1)
+    ASHP_HO_switchover <- round(((ASHP_HO_switchover_COP - heat_COP_low)/COP_slope) + 5,1)
+    ASHP_P_switchover <- round(((ASHP_P_switchover_COP - heat_COP_low)/COP_slope) + 5,1)
+    ASHP_ElecRes_switchover <- round(((ASHP_ElecRes_switchover_COP - heat_COP_low)/COP_slope) + 5,1)
+    ASHP_WoodCord_switchover <- round(((ASHP_WoodCord_switchover_COP - heat_COP_low)/COP_slope) + 5,1)
+    ASHP_WoodPellet_switchover <- round(((ASHP_WoodPellet_switchover_COP - heat_COP_low)/COP_slope) + 5,1)
     
     ## proportion of heating load covered by backup - different for each fuel 
     ## because of different switchovers first adjust the temperature_heating_bin 
@@ -390,14 +495,20 @@ for(k in 1:nrow(geo))
     heating_bin_hours <- heatingbin_adjust(indoor_design_temperature, 
                                            outdoor_design_temperature, temperature_bin_hours)
     #next determine the proportion of heating provided by backup for each fuel
-    ASHP_NG_backup_heating <- backupheatingload(heating_bin_hours, ASHP_NG_switchover)
-    ASHP_HO_backup_heating <- backupheatingload(heating_bin_hours, ASHP_HO_switchover)
-    ASHP_P_backup_heating <- backupheatingload(heating_bin_hours, ASHP_P_switchover)
+    ASHP_NG_backup_heating <- backupheatingload(heating_bin_hours, ASHP_NG_switchover, heating_load)
+    ASHP_HO_backup_heating <- backupheatingload(heating_bin_hours, ASHP_HO_switchover, heating_load)
+    ASHP_P_backup_heating <- backupheatingload(heating_bin_hours, ASHP_P_switchover, heating_load)
+    ASHP_ElecRes_backup_heating <- backupheatingload(heating_bin_hours, ASHP_ElecRes_switchover, heating_load)
+    ASHP_WoodCord_backup_heating <- backupheatingload(heating_bin_hours, ASHP_WoodCord_switchover, heating_load)
+    ASHP_WoodPellet_backup_heating <- backupheatingload(heating_bin_hours, ASHP_WoodPellet_switchover, heating_load)
     
     ## and by ASHP for each fuel
     ASHP_NG_heating <- heating_load - ASHP_NG_backup_heating
     ASHP_HO_heating <- heating_load - ASHP_HO_backup_heating
     ASHP_P_heating <- heating_load - ASHP_P_backup_heating
+    ASHP_ElecRes_heating <- heating_load - ASHP_ElecRes_backup_heating
+    ASHP_WoodCord_heating <- heating_load - ASHP_WoodCord_backup_heating
+    ASHP_WoodPellet_heating <- heating_load - ASHP_WoodPellet_backup_heating
     
     ## installment costs
     ### all values are the mean value of Homewyse estimates of the cost of installing 
@@ -421,103 +532,64 @@ for(k in 1:nrow(geo))
     AC_installment_file <- filter(AC_installment_file_base, price_region == price_region)[1,]
     NG_P_installment_file <- filter(NG_P_installment_file_base, price_region == price_region)[1,]
     HO_installment_file <- filter(HO_installment_file_base, price_region == price_region)[1,]
+    ElecRes_installment_file <- filter(ElecRes_installment_file_base, price_region == price_region)[1,]
     
     # nonlabor cost of installing an ASHP in dollars per unit 
-    ASHP_nonlabor_installment_cost <- runif(1, min = ASHP_installment_file$systemcost_low, max = ASHP_installment_file$systemcost_high) 
-    # cost of installing a natural gas furnace in dollars per unit 
-    naturalgas_furnace_nonlabor_installment_cost <- runif(1, min = NG_P_installment_file$systemcost_low, max = NG_P_installment_file$systemcost_high) 
-    # cost of installing a heating oil furnace in dollars per unit 
-    heatingoil_furnace_nonlabor_installment_cost <- runif(1, min = HO_installment_file$systemcost_low, max = HO_installment_file$systemcost_high) 
-    # cost of installing a propane furnace in dollars per unit 
-    propane_furnace_nonlabor_installment_cost <- naturalgas_furnace_nonlabor_installment_cost
-    # cost of installing air conditioning in dollars per unit
-    AC_nonlabor_installment_cost <- 0
-    if(cooling){AC_nonlabor_installment_cost <- runif(1, min = AC_installment_file$systemcost_low, max = AC_installment_file$systemcost_high)} 
-    ## labor costs - we assume these to covary perfectly
-    labor_costs <- runif(1,0,1)
-    # take the low labor cost and add the difference between high and low times our
-    # random value for how expensive labor is in the area that the heating tech is
-    # being installed in (labor_costs, above)
-    ASHP_labor_installment_cost <- ASHP_installment_file$laborcost_low + labor_costs*(ASHP_installment_file$laborcost_high - ASHP_installment_file$laborcost_low) #low = 1289, high = 1860
-    naturalgas_furnace_labor_installment_cost <- NG_P_installment_file$laborcost_low + labor_costs*(NG_P_installment_file$laborcost_high - NG_P_installment_file$laborcost_low) #low = 923, high = 1341
-    heatingoil_furnace_labor_installment_cost <- HO_installment_file$laborcost_low + labor_costs*(HO_installment_file$laborcost_high - HO_installment_file$laborcost_low) #low = 636, high = 810
-    propane_furnace_labor_installment_cost <- naturalgas_furnace_labor_installment_cost #low = 923, high = 1341 
-    AC_labor_installment_cost <- 0
-    #if(cooling){AC_labor_installment_cost <- 2364 + labor_costs*867} #low = 2364, high = 3232
-    ## after receiving feedback from PSC that questioned the Homewyse values, we chose
-    ## to allow AC installment labor costs to equal ASHP installment costs.
-    if(cooling){AC_labor_installment_cost <- ASHP_labor_installment_cost} #low = 1289, high = 1860
-    ### combine costs
-    ASHP_installment_cost <- ASHP_nonlabor_installment_cost + ASHP_labor_installment_cost
-    naturalgas_furnace_installment_cost <- naturalgas_furnace_nonlabor_installment_cost + 
-      naturalgas_furnace_labor_installment_cost
-    heatingoil_furnace_installment_cost <- heatingoil_furnace_nonlabor_installment_cost + 
-      heatingoil_furnace_labor_installment_cost
-    propane_furnace_installment_cost <- propane_furnace_nonlabor_installment_cost + 
-      propane_furnace_labor_installment_cost
-    AC_installment_cost <- AC_nonlabor_installment_cost + AC_labor_installment_cost
+    ## we assume nonmaterial costs to covary perfectly
+    nonmaterial_costs <- runif(1,0,1)
+    ASHP_installment_cost <- installment_costs(ASHP_installment_file, nonmaterial_costs)
+    naturalgas_furnace_installment_cost <- installment_costs(NG_P_installment_file, nonmaterial_costs)
+    heatingoil_furnace_installment_cost <- installment_costs(ASHP_installment_file, nonmaterial_costs)
+    propane_furnace_installment_cost <- naturalgas_furnace_installment_cost
+    ElecRes_installment_cost <- installment_costs(ElecRes_installment_file, nonmaterial_costs)
+    AC_installment_cost <- installment_costs(AC_installment_file, nonmaterial_costs)
     
     # First simulate the efficiency of the "average" air source heat pump in the
     # scenario.  
     # calculate the COP by weighting the COP within each temperature bin by
     # how often the ASHP has to run while in that bin and how often that bin
     # occurs
+    # First simulate the efficiency of the "average" air source heat pump in the
+    # scenario.  
+    # calculate the COP by weighting the COP within each temperature bin by
+    # how often the ASHP has to run while in that bin and how often that bin
+    # occurs
     ASHP_NG_heating_ASHP_COP <- annual_COP(heat_COP_low, heat_COP_high, 
-                                      heating_bin_hours, ASHP_NG_switchover, TRUE)
+                                           heating_bin_hours, ASHP_NG_switchover, TRUE)
     ASHP_HO_heating_ASHP_COP <- annual_COP(heat_COP_low, heat_COP_high, 
-                                      heating_bin_hours, ASHP_HO_switchover, TRUE)
+                                           heating_bin_hours, ASHP_HO_switchover, TRUE)
     ASHP_P_heating_ASHP_COP <- annual_COP(heat_COP_low, heat_COP_high, 
-                                      heating_bin_hours, ASHP_P_switchover, TRUE)
+                                          heating_bin_hours, ASHP_P_switchover, TRUE)
+    ASHP_ElecRes_heating_ASHP_COP <- annual_COP(heat_COP_low, heat_COP_high,
+                                                heating_bin_hours, ASHP_ElecRes_switchover, TRUE)
+    ASHP_WoodCord_heating_ASHP_COP <- annual_COP(heat_COP_low, heat_COP_high,
+                                                 heating_bin_hours, ASHP_WoodCord_switchover, TRUE)
+    ASHP_WoodPellet_heating_ASHP_COP <- annual_COP(heat_COP_low, heat_COP_high,
+                                                   heating_bin_hours, ASHP_WoodPellet_switchover, TRUE)
     
     #### calculate input for all heating types + cooling 
     # the rest are all in mmBTUs 
     ASHP_NG_input <- ASHP_NG_heating/ASHP_NG_heating_ASHP_COP
     ASHP_HO_input <- ASHP_HO_heating/ASHP_HO_heating_ASHP_COP
     ASHP_P_input <- ASHP_P_heating/ASHP_P_heating_ASHP_COP
+    ASHP_ElecRes_input <- ASHP_ElecRes_heating/ASHP_ElecRes_heating_ASHP_COP
+    ASHP_WoodCord_input <- ASHP_WoodCord_heating/ASHP_WoodCord_heating_ASHP_COP
+    ASHP_WoodPellet_input <- ASHP_WoodPellet_heating/ASHP_WoodPellet_heating_ASHP_COP
     backup_NG_input <- ASHP_NG_backup_heating/naturalgas_furnace_efficiency
     backup_HO_input <- ASHP_HO_backup_heating/heatingoil_furnace_efficiency
     backup_P_input <- ASHP_P_backup_heating/propane_furnace_efficiency
+    backup_ElecRes_input <- ASHP_ElecRes_backup_heating/ElecRes_efficiency
+    backup_WoodCord_input <- ASHP_WoodCord_backup_heating/wood_cord_efficiency
+    backup_WoodPellet_input <- ASHP_WoodPellet_backup_heating/wood_pellet_efficiency
     full_NG_input <- heating_load/naturalgas_furnace_efficiency
     full_HO_input <- heating_load/heatingoil_furnace_efficiency
     full_P_input <- heating_load/propane_furnace_efficiency
+    full_ElecRes_input <- heating_load/ElecRes_efficiency
+    full_WoodCord_input <- heating_load/wood_cord_efficiency
+    full_WoodPellet_input <- heating_load/wood_pellet_efficiency
     
     ###other variables
     social_cost_of_CO2 <- runif(1, min = 14, max = 51)/1000 #dollars per kg of CO2
-    ###emissions variables (fuel data from https://www.epa.gov/sites/default/files/2021-04/documents/emission-factors_apr2021.pdf)
-    ### WI grid specific electricity grid data is from https://www.epa.gov/sites/default/files/2021-02/documents/egrid2019_summary_tables.pdf
-    #CO2
-    ## CO2 associated with electricity being used for heating in pounds of CO2/MWh
-    electricity_CO2 <- 1225.4 
-    ## CO2 from burning natural gas in a furnace in kg of CO2 per mmBTU
-    naturalgas_CO2 <- 53.06 
-    ## CO2 from burning heating oil (Distillate Fuel Oil No. 2) in a furnace in kg of CO2 per mmBTU
-    heatingoil_CO2 <- 73.96 
-    ## CO2 from burning propane in a furnace in kg of CO2 per mmBTU
-    propane_CO2 <- 62.87 
-    
-    #CH4
-    # CH4 associated with electricity being used for heating in lb of CH4/MWh
-    electricity_CH4 <- 0.113
-    # CH4 from burning natural gas in a furnace in kg of CH4 per mmBTU
-    naturalgas_CH4 <- 1/1000 
-    # CH4 from burning heating oil (Distillate Fuel Oil No. 2) in a furnace in kg of CH4 per mmBTU
-    heatingoil_CH4 <- 3/1000 
-    # CH4 from burning propane in a furnace in kg of CH4 per mmBTU
-    propane_CH4 <- 3/1000 
-    
-    #N2O
-    # N2O associated with electricity being used for heating in pounds of N2O/MWh
-    electricity_N2O <- 0.016 
-    # N2O from burning natural gas in a furnace in kg of N2O per mmBTU
-    naturalgas_N2O <- 0.1/1000 
-    # N2O from burning heating oil (Distillate Fuel Oil No. 2) in a furnace in kg of N2O per mmBTU
-    heatingoil_N2O <- 0.6/1000 
-    # N2O from burning propane in a furnace in kg of N2O per mmBTU
-    propane_N2O <- 0.6/1000 
-    
-    ### decarbonization rate of the grid
-    #2019 is the year from which our grid emissions values come from
-    decarb <- 1/(decarb_year - 2019) 
     
     ##### we assume that methane leakage per production rates will remain constant
     ##### over time. We also assume that all fuel burned whether for heating or
@@ -533,20 +605,6 @@ for(k in 1:nrow(geo))
     sd <- (abs((2 - 2.3)/1.96) + abs((2.7 - 2.3)/1.96))/2
     NG_and_Petroleum_methane_leakage_rate <- rnorm(1, 2.3, sd)/100
     
-    ## energy to volume
-    mmBTU_per_cubic_ft_NG <- 0.001026 #source: https://www.epa.gov/sites/default/files/2021-04/documents/emission-factors_apr2021.pdf
-    mmBTU_per_gallon_HO <- 0.138 #source: https://www.epa.gov/sites/default/files/2021-04/documents/emission-factors_apr2021.pdf
-    mmBTU_per_gallon_P <- 0.091 #source: https://www.epa.gov/sites/default/files/2021-04/documents/emission-factors_apr2021.pdf
-    ## volume to weight - if not specified, source: https://cngcenter.com/wp-content/uploads/2013/09/UnitsAndConversions.pdf
-    NG_density <- 0.717 #kg/m^3
-    m3_to_ft3 <- 35.3 #ft^3/m^3 
-    cubic_ft_NG_to_kg <- NG_density/m3_to_ft3 #kg/ft^3
-    HO_density <- 0.87 #kg/L source: https://henrycounty.in.gov/DocumentCenter/View/318/Fuel-Oil-Number-2-PDF
-    liter_to_gallon <- 0.26 #gal/L
-    gallon_HO_to_kg <- HO_density/liter_to_gallon
-    P_density <- 0.495 #kg/L @ 25 degrees Celcius, source: https://www.engineeringtoolbox.com/specific-gravity-liquids-d_336.html
-    gallon_P_to_kg <- P_density/liter_to_gallon #kg/gallon, source: https://henrycounty.in.gov/DocumentCenter/View/318/Fuel-Oil-Number-2-PDF
-    
     full_NG_methane_leak_CO2e <- methane_leak(full_NG_input, NG_and_Petroleum_methane_leakage_rate, 
                                               mmBTU_per_cubic_ft_NG, cubic_ft_NG_to_kg)
     full_HO_methane_leak_CO2e <- methane_leak(full_HO_input, NG_and_Petroleum_methane_leakage_rate,
@@ -559,83 +617,35 @@ for(k in 1:nrow(geo))
                                                 mmBTU_per_gallon_HO, gallon_HO_to_kg)
     backup_P_methane_leak_CO2e <- methane_leak(backup_P_input, NG_and_Petroleum_methane_leakage_rate, 
                                                mmBTU_per_gallon_P, gallon_P_to_kg)
-    
-    ### account for life-cycle emissions with regard to electricity production
-    # source: https://www.epa.gov/sites/default/files/2021-02/documents/egrid2019_summary_tables.pdf
-    # static (we assume these don't change over the course of the simulation)
-    proportion_electricity_from_oil <- 0.002
-    proportion_electricity_from_NG <- 0.328
-    proportion_electricity_from_nuclear <- 0.162
-    proportion_electricity_from_hydro <- 0.043
-    proportion_electricity_from_biomass <- 0.022
-    # we assume that all improvements to the grid during the simulation comes 
-    # from the removal of coal from the grid and that it will be replaced with an
-    # equal proportion of solar and wind
-    proportion_electricity_from_coal <- 0.413
-    proportion_electricity_from_wind <- 0.03
-    proportion_electricity_from_solar <- 0.001
-    
-    # the above figures are from 2019, so we update them to 2020 numbers so that
-    # they can be used in the iterative year for-loop below.
-    # The 1.25 (1/.8) reflects the fact that coal is removed from the grid at a rate 
-    # faster than the grid reaches 0 emissions (e.g. in our aggressive case, all coal 
-    # is removed by 2035, but the grid still has 20% of it's original emissions)
-    drop_in_coal <- proportion_electricity_from_coal*(decarb*1.25)
-    proportion_electricity_from_coal <- proportion_electricity_from_coal - drop_in_coal
-    proportion_electricity_from_wind <- proportion_electricity_from_wind + drop_in_coal/2
-    proportion_electricity_from_solar <- proportion_electricity_from_solar + drop_in_coal/2
-    
-    # lifecycle emission rates - not including combustion emissions, where applicable,
-    # since those are accounted for elsewhere
-    # source: https://www.nrel.gov/docs/fy21osti/80580.pdf
-    # all numbers are in kg CO2e/kWh
-    biomass_lifecycle <- 52/1000
-    photovoltaic_lifecycle <- 43/1000
-    hydro_lifecycle <- 21/1000
-    wind_lifecycle <- 13/1000
-    nuclear_lifecycle <- 13/1000
-    NG_lifecycle <- (0.8+71+0.02)/1000
-    #the literature lacks necessary details to come up with a non-combustion 
-    #life-cycle figure for oil, but the literature often applies the same value to
-    #oil production emissions as to NG production emissions, so we do the same here
-    #with NG
-    oil_lifecycle <- NG_lifecycle 
-    coal_lifecycle <- (5 + 10 + 5)/1000 # we assume that <5 is equal to 5
       
     ## create dataset to track the 15 year simulation for this trial
-    track_years <- data.frame(n = c(0:years_of_analysis), NG = 0, HO = 0, P = 0, 
-                              ASHP_NG = 0, ASHP_HO = 0, ASHP_P = 0, NG_private = 0,
-                              NG_emissions = 0, HO_private = 0, HO_emissions = 0,
-                              P_private = 0, P_emissions = 0, ASHP_NG_private = 0,
-                              ASHP_NG_emissions = 0, ASHP_HO_private = 0,
-                              ASHP_HO_emissions = 0, ASHP_P_private = 0,
-                              ASHP_P_emissions = 0)
+    track_years <- track_years <- data.frame(n = c(0:years_of_analysis))
     #### input year 0 costs (i.e. installation costs)
     track_years[track_years$n == 0,"NG"] <- naturalgas_furnace_installment_cost
     track_years[track_years$n == 0,"HO"] <- heatingoil_furnace_installment_cost
     track_years[track_years$n == 0,"P"] <- propane_furnace_installment_cost
-    
-    ### if an ASHP is being installed we add the cost of an ASHP
-    ## otherwise we add the cost of air conditioning (but the cost = 0 if we are
-    ## not considering cooling i.e. cooling == FALSE)
-    track_years[track_years$n == 0,"ASHP_NG"] <- track_years[track_years$n == 0,"NG"] + 
+    track_years[track_years$n == 0, "ElecRes"] <- ElecRes_installment_cost
+    track_years[track_years$n == 0, "WoodCord"] <- wood_cord_installment_cost
+    track_years[track_years$n == 0, "WoodPellet"] <- wood_pellet_installment_cost
+    track_years[track_years$n == 0, "AC"] <- AC_installment_cost
+    track_years[track_years$n == 0,"ASHP_NG"] <- naturalgas_furnace_installment_cost +
       ASHP_installment_cost
-    track_years[track_years$n == 0,"ASHP_HO"] <- track_years[track_years$n == 0,"HO"] + 
+    track_years[track_years$n == 0,"ASHP_HO"] <- heatingoil_furnace_installment_cost +
       ASHP_installment_cost
-    track_years[track_years$n == 0,"ASHP_P"] <- track_years[track_years$n == 0,"P"] + 
+    track_years[track_years$n == 0,"ASHP_P"] <- propane_furnace_installment_cost +
       ASHP_installment_cost
-    track_years[track_years$n == 0,"NG"] <- track_years[track_years$n == 0,"NG"] + 
-      AC_installment_cost
-    track_years[track_years$n == 0,"HO"] <- track_years[track_years$n == 0,"HO"] + 
-      AC_installment_cost
-    track_years[track_years$n == 0,"P"] <- track_years[track_years$n == 0,"P"] + 
-      AC_installment_cost
-    
+    track_years[track_years$n == 0,"ASHP_ElecRes"] <- ElecRes_installment_cost +
+      ASHP_installment_cost
+    track_years[track_years$n == 0,"ASHP_WoodCord"] <- wood_cord_installment_cost +
+      ASHP_installment_cost
+    track_years[track_years$n == 0,"ASHP_WoodPellet"] <- wood_pellet_installment_cost +
+      ASHP_installment_cost
+  
     #### start simulation of annual costs ####
     for(j in 1:years_of_analysis){
       ###cost variables
-      #fuel cost in 2020 $/mmBTU from EIA projections for year j
-      electricity_price <- electricity_heating_cost*fuel_cost_growth_rates[j, which(str_detect(colnames(fuel_cost_growth_rates), "Electricity"))]
+      #fuel cost in 2021 $/mmBTU from EIA projections for year j
+      heating_electricity_price <- heating_electricity_cost*fuel_cost_growth_rates[j, which(str_detect(colnames(fuel_cost_growth_rates), "Electricity"))]
       naturalgas_price <- projections[j, which(str_detect(colnames(fuel_cost_growth_rates), "Gas"))] 
       heatingoil_price <- projections[j, which(str_detect(colnames(projections), "Oil"))] 
       propane_price <- projections[j, which(str_detect(colnames(projections), "Propane"))] 
@@ -682,26 +692,31 @@ for(k in 1:nrow(geo))
       
       #propane
       propane_CO2e <- propane_CO2*GWP_CO2 + propane_CH4*GWP_CH4 + propane_N2O*GWP_N2O
+      
+      #wood cords
+      wood_CO2e <- wood_CO2*GWP_CO2 + wood_CH4*GWP_CH4 + wood_N2O*GWP_N2O
       ############### end of conversions ########################################
       
       ################# Calculations section ###############
       ####Calculate heating costs for all heating types
-      cooling_fuel_cost <- cooling_kWh*mmBTU_per_kWh*electricity_price
-      ASHP_NG_fuel_cost <- ASHP_NG_input*electricity_price + cooling_fuel_cost
-      ASHP_HO_fuel_cost <- ASHP_HO_input*electricity_price + cooling_fuel_cost
-      ASHP_P_fuel_cost <- ASHP_P_input*electricity_price + cooling_fuel_cost
+      ASHP_NG_fuel_cost <- ASHP_NG_input*heating_electricity_price
+      ASHP_HO_fuel_cost <- ASHP_HO_input*heating_electricity_price
+      ASHP_P_fuel_cost <- ASHP_P_input*heating_electricity_price
+      ASHP_ElecRes_fuel_cost <- ASHP_ElecRes_input*heating_electricity_price
+      ASHP_WoodCord_fuel_cost <- ASHP_WoodCord_input*wood_cord_cost
+      ASHP_WoodPellet_fuel_cost <- ASHP_WoodPellet_input*wood_pellet_cost
       backup_naturalgas_fuel_cost <-  backup_NG_input*naturalgas_price
       backup_heatingoil_fuel_cost <- backup_HO_input*heatingoil_price
       backup_propane_fuel_cost <- backup_P_input*propane_price
+      backup_ElecRes_fuel_cost <- backup_ElecRes_input*heating_electricity_price
+      backup_WoodCord_fuel_cost <- backup_WoodCord_input*wood_cord_cost
+      backup_WoodPellet_fuel_cost <- backup_WoodPellet_input*wood_pellet_cost
       full_naturalgas_fuel_cost <- full_NG_input*naturalgas_price
       full_heatingoil_fuel_cost <- full_HO_input*heatingoil_price
       full_propane_fuel_cost <- full_P_input*propane_price
-      
-      if(cooling){
-        full_naturalgas_fuel_cost <- full_naturalgas_fuel_cost + cooling_fuel_cost
-        full_heatingoil_fuel_cost <- full_heatingoil_fuel_cost + cooling_fuel_cost
-        full_propane_fuel_cost <- full_propane_fuel_cost + cooling_fuel_cost
-      }
+      full_ElecRes_fuel_cost <- full_ElecRes_input*heating_electricity_price
+      full_WoodCord_fuel_cost <- full_WoodCord_input*wood_cord_cost
+      full_WoodPellet_fuel_cost <- full_WoodPellet_input*wood_pellet_cost
       
       # all electric emissions account for line loss, the % of electricity lost
       # from production to end-source. Since producers account for line-loss in their
@@ -713,32 +728,41 @@ for(k in 1:nrow(geo))
       cooling_emissions_cost <- (cooling_kWh*mmBTU_per_kWh*electricity_CO2e)*
         (1+line_loss)*social_cost_of_CO2
       ASHP_NG_emissions_cost <- (ASHP_NG_input*electricity_CO2e)*(1+line_loss)*
-        social_cost_of_CO2 + cooling_emissions_cost
+        social_cost_of_CO2
       ASHP_HO_emissions_cost <- (ASHP_HO_input*electricity_CO2e)*(1+line_loss)*
-        social_cost_of_CO2 + cooling_emissions_cost
+        social_cost_of_CO2
       ASHP_P_emissions_cost <- (ASHP_P_input*electricity_CO2e)*(1+line_loss)*
-        social_cost_of_CO2 + cooling_emissions_cost
-      backup_naturalgas_emissions_cost <- (backup_NG_input*naturalgas_CO2e + 
-                                             backup_NG_methane_leak_CO2e)*social_cost_of_CO2
-      backup_heatingoil_emissions_cost <- (backup_HO_input*heatingoil_CO2e + 
-                                             backup_HO_methane_leak_CO2e)*social_cost_of_CO2
-      backup_propane_emissions_cost <- (backup_P_input*propane_CO2e + 
-                                          backup_P_methane_leak_CO2e)*social_cost_of_CO2
-      full_natgas_emissions_cost <- (full_NG_input*naturalgas_CO2e + 
-                                       full_NG_methane_leak_CO2e)*social_cost_of_CO2
-      full_heatingoil_emissions_cost <- (full_HO_input*heatingoil_CO2e + 
-                                           full_HO_methane_leak_CO2e)*social_cost_of_CO2
-      full_propane_emissions_cost <- (full_P_input*propane_CO2e + 
-                                        full_P_methane_leak_CO2e)*social_cost_of_CO2
+        social_cost_of_CO2
+      ASHP_ElecRes_emissions_cost <- (ASHP_ElecRes_input*electricity_CO2e)*(1+line_loss)*
+        social_cost_of_CO2
+      ASHP_WoodCord_emissions_cost <- (ASHP_WoodCord_input*electricity_CO2e)*(1+line_loss)*
+        social_cost_of_CO2
+      ASHP_WoodPellet_emissions_cost <- (ASHP_WoodPellet_input*electricity_CO2e)*(1+line_loss)*
+        social_cost_of_CO2
       
-      if(cooling){
-        full_natgas_emissions_cost <- full_natgas_emissions_cost + 
-          cooling_emissions_cost
-        full_heatingoil_emissions_cost <- full_heatingoil_emissions_cost + 
-          cooling_emissions_cost
-        full_propane_emissions_cost <- full_propane_emissions_cost + 
-          cooling_emissions_cost
-      }
+      backup_naturalgas_emissions_cost <- (backup_NG_input*naturalgas_CO2e +
+                                             backup_NG_methane_leak_CO2e)*social_cost_of_CO2
+      backup_heatingoil_emissions_cost <- (backup_HO_input*heatingoil_CO2e +
+                                             backup_HO_methane_leak_CO2e)*social_cost_of_CO2
+      backup_propane_emissions_cost <- (backup_P_input*propane_CO2e +
+                                          backup_P_methane_leak_CO2e)*social_cost_of_CO2
+      backup_ElecRes_emissions_cost <- (backup_ElecRes_input*electricity_CO2e)*(1+line_loss)*
+        social_cost_of_CO2
+      backup_WoodCord_emissions_cost <- (backup_WoodCord_input*electricity_CO2e)*(1+line_loss)*
+        social_cost_of_CO2
+      backup_WoodPellet_emissions_cost <- (backup_WoodPellet_input*electricity_CO2e)*(1+line_loss)*
+        social_cost_of_CO2
+      
+      full_natgas_emissions_cost <- (full_NG_input*naturalgas_CO2e +
+                                       full_NG_methane_leak_CO2e)*social_cost_of_CO2
+      full_heatingoil_emissions_cost <- (full_HO_input*heatingoil_CO2e +
+                                           full_HO_methane_leak_CO2e)*social_cost_of_CO2
+      full_propane_emissions_cost <- (full_P_input*propane_CO2e +
+                                        full_P_methane_leak_CO2e)*social_cost_of_CO2
+      full_ElecRes_emissions_cost <- (full_ElecRes_input*electricity_CO2e)*(1+line_loss)*
+        social_cost_of_CO2
+      full_WoodCord_emissions_cost <- (full_WoodCord_input*wood_CO2e)*social_cost_of_CO2
+      full_WoodPellet_emissions_cost <- (full_WoodPellet_input*wood_CO2e)*social_cost_of_CO2
       
       ################### End of "calculation section" ################
       
@@ -747,95 +771,232 @@ for(k in 1:nrow(geo))
       NG <- full_natgas_emissions_cost + full_naturalgas_fuel_cost
       HO <- full_heatingoil_emissions_cost + full_heatingoil_fuel_cost
       P <- full_propane_emissions_cost + full_propane_fuel_cost
-      ASHP_NG <- ASHP_NG_fuel_cost + ASHP_NG_emissions_cost + 
-        backup_naturalgas_emissions_cost + backup_naturalgas_fuel_cost
-      ASHP_HO <- ASHP_HO_fuel_cost + ASHP_HO_emissions_cost + 
-        backup_heatingoil_emissions_cost + backup_heatingoil_fuel_cost
-      ASHP_P <- ASHP_P_fuel_cost + ASHP_P_emissions_cost + 
-        backup_propane_emissions_cost + backup_propane_fuel_cost
+      ElecRes <- full_ElecRes_emissions_cost + full_ElecRes_fuel_cost
+      WoodCord <- full_WoodCord_emissions_cost + full_WoodCord_fuel_cost
+      WoodPellet <- full_WoodPellet_emissions_cost + full_WoodPellet_fuel_cost
+      AC <- cooling_emissions_cost
       
-      track_years[track_years$n == j, "NG_private"] <-
-        full_naturalgas_fuel_cost/(1+discount_rate)^j
-      track_years[track_years$n == j, "HO_private"] <-
-        full_heatingoil_fuel_cost/(1+discount_rate)^j
-      track_years[track_years$n == j, "P_private"] <-
-        full_propane_fuel_cost/(1+discount_rate)^j
-      track_years[track_years$n == j, "NG_emissions"] <-
-        full_natgas_emissions_cost/(1+discount_rate)^j
-      track_years[track_years$n == j, "HO_emissions"] <-
-        full_heatingoil_emissions_cost/(1+discount_rate)^j
-      track_years[track_years$n == j, "P_emissions"] <-
-        full_propane_emissions_cost/(1+discount_rate)^j
-      track_years[track_years$n == j, "ASHP_NG_private"] <-
-        (ASHP_NG_fuel_cost + backup_naturalgas_fuel_cost)/(1+discount_rate)^j
-      track_years[track_years$n == j, "ASHP_HO_private"] <-
-        (ASHP_HO_fuel_cost + backup_heatingoil_fuel_cost)/(1+discount_rate)^j
-      track_years[track_years$n == j, "ASHP_P_private"] <-
-        (ASHP_P_fuel_cost + backup_propane_fuel_cost)/(1+discount_rate)^j
-      track_years[track_years$n == j, "ASHP_NG_emissions"] <-
-        (ASHP_NG_emissions_cost + backup_naturalgas_emissions_cost)/(1+discount_rate)^j
-      track_years[track_years$n == j, "ASHP_HO_emissions"] <-
-        (ASHP_HO_emissions_cost + backup_heatingoil_emissions_cost)/(1+discount_rate)^j
-      track_years[track_years$n == j, "ASHP_P_emissions"] <-
-        (ASHP_P_emissions_cost + backup_propane_emissions_cost)/(1+discount_rate)^j
+      ASHP_NG <- ASHP_NG_fuel_cost + ASHP_NG_emissions_cost +
+        backup_naturalgas_emissions_cost + backup_naturalgas_fuel_cost + cooling_emissions_cost
+      ASHP_HO <- ASHP_HO_fuel_cost + ASHP_HO_emissions_cost +
+        backup_heatingoil_emissions_cost + backup_heatingoil_fuel_cost + cooling_emissions_cost
+      ASHP_P <- ASHP_P_fuel_cost + ASHP_P_emissions_cost +
+        backup_propane_emissions_cost + backup_propane_fuel_cost + cooling_emissions_cost
+      ASHP_ElecRes <- ASHP_ElecRes_fuel_cost + ASHP_ElecRes_emissions_cost +
+        backup_ElecRes_emissions_cost + backup_ElecRes_fuel_cost + cooling_emissions_cost
+      ASHP_WoodCord <- ASHP_WoodCord_fuel_cost + ASHP_WoodCord_emissions_cost +
+        backup_WoodCord_emissions_cost + backup_WoodCord_fuel_cost + cooling_emissions_cost
+      ASHP_WoodPellet <- ASHP_WoodPellet_fuel_cost + ASHP_WoodPellet_emissions_cost +
+        backup_WoodPellet_emissions_cost + backup_WoodPellet_fuel_cost + cooling_emissions_cost
+      
       ## discount the annual costs to derive the NPV
       track_years[track_years$n == j, "NG"] <- NG/(1+discount_rate)^j
       track_years[track_years$n == j, "HO"] <- HO/(1+discount_rate)^j
       track_years[track_years$n == j, "P"] <- P/(1+discount_rate)^j
+      track_years[track_years$n == j, "ElecRes"] <- ElecRes/(1+discount_rate)^j
+      track_years[track_years$n == j, "WoodCord"] <- WoodCord/(1+discount_rate)^j
+      track_years[track_years$n == j, "WoodPellet"] <- WoodPellet/(1+discount_rate)^j
       track_years[track_years$n == j, "ASHP_NG"] <- ASHP_NG/(1+discount_rate)^j
       track_years[track_years$n == j, "ASHP_HO"] <- ASHP_HO/(1+discount_rate)^j
       track_years[track_years$n == j, "ASHP_P"] <- ASHP_P/(1+discount_rate)^j
+      track_years[track_years$n == j, "ASHP_ElecRes"] <- ASHP_ElecRes/(1+discount_rate)^j
+      track_years[track_years$n == j, "ASHP_WoodCord"] <- ASHP_WoodCord/(1+discount_rate)^j
+      track_years[track_years$n == j, "ASHP_WoodPellet"] <- ASHP_WoodPellet/(1+discount_rate)^j
+      track_years[track_years$n == j, "AC"] <- AC/(1+discount_rate)^j
+      
+      ## sub-parts of the net benefits
+      #### Maintenance and Operations costs
+      track_years[track_years$n == j, "NG_MO"] <-
+        full_naturalgas_fuel_cost/(1+discount_rate)^j
+      track_years[track_years$n == j, "HO_MO"] <-
+        full_heatingoil_fuel_cost/(1+discount_rate)^j
+      track_years[track_years$n == j, "P_MO"] <-
+        full_propane_fuel_cost/(1+discount_rate)^j
+      track_years[track_years$n == j, "ElecRes_MO"] <-
+        full_ElecRes_fuel_cost/(1+discount_rate)^j
+      track_years[track_years$n == j, "WoodCord_MO"] <-
+        full_WoodCord_fuel_cost/(1+discount_rate)^j
+      track_years[track_years$n == j, "WoodPellet_MO"] <-
+        full_WoodPellet_fuel_cost/(1+discount_rate)^j
+      track_years[track_years$n == j, "ASHP_NG_MO"] <-
+        (ASHP_NG_fuel_cost + backup_naturalgas_fuel_cost)/(1+discount_rate)^j
+      track_years[track_years$n == j, "ASHP_HO_MO"] <-
+        (ASHP_HO_fuel_cost + backup_heatingoil_fuel_cost)/(1+discount_rate)^j
+      track_years[track_years$n == j, "ASHP_P_MO"] <-
+        (ASHP_P_fuel_cost + backup_propane_fuel_cost)/(1+discount_rate)^j
+      track_years[track_years$n == j, "ASHP_ElecRes_MO"] <-
+        (ASHP_ElecRes_fuel_cost + backup_ElecRes_fuel_cost)/(1+discount_rate)^j
+      track_years[track_years$n == j, "ASHP_WoodCord_MO"] <-
+        (ASHP_WoodCord_fuel_cost + backup_WoodCord_fuel_cost)/(1+discount_rate)^j
+      track_years[track_years$n == j, "ASHP_WoodPellet_MO"] <-
+        (ASHP_WoodPellet_fuel_cost + backup_WoodPellet_fuel_cost)/(1+discount_rate)^j
+      track_years[track_years$n == j, "AC_MO"] <- 0
+      #### emissions costs
+      track_years[track_years$n == j, "NG_emissions_cost"] <-
+        full_natgas_emissions_cost/(1+discount_rate)^j
+      track_years[track_years$n == j, "HO_emissions_cost"] <-
+        full_heatingoil_emissions_cost/(1+discount_rate)^j
+      track_years[track_years$n == j, "P_emissions_cost"] <-
+        full_propane_emissions_cost/(1+discount_rate)^j
+      track_years[track_years$n == j, "ElecRes_emissions_cost"] <-
+        full_ElecRes_emissions_cost/(1+discount_rate)^j
+      track_years[track_years$n == j, "WoodCord_emissions_cost"] <-
+        full_WoodCord_emissions_cost/(1+discount_rate)^j
+      track_years[track_years$n == j, "WoodPellet_emissions_cost"] <-
+        full_WoodPellet_emissions_cost/(1+discount_rate)^j
+      track_years[track_years$n == j, "ASHP_NG_emissions_cost"] <-
+        (ASHP_NG_emissions_cost + backup_naturalgas_emissions_cost + cooling_emissions_cost)/(1+discount_rate)^j
+      track_years[track_years$n == j, "ASHP_HO_emissions_cost"] <-
+        (ASHP_HO_emissions_cost + backup_heatingoil_emissions_cost + cooling_emissions_cost)/(1+discount_rate)^j
+      track_years[track_years$n == j, "ASHP_P_emissions_cost"] <-
+        (ASHP_P_emissions_cost + backup_propane_emissions_cost + cooling_emissions_cost)/(1+discount_rate)^j
+      track_years[track_years$n == j, "ASHP_ElecRes_emissions_cost"] <-
+        (ASHP_ElecRes_emissions_cost + backup_ElecRes_emissions_cost + cooling_emissions_cost)/(1+discount_rate)^j
+      track_years[track_years$n == j, "ASHP_WoodCord_emissions_cost"] <-
+        (ASHP_WoodCord_emissions_cost + backup_WoodCord_emissions_cost + cooling_emissions_cost)/(1+discount_rate)^j
+      track_years[track_years$n == j, "ASHP_WoodPellet_emissions_cost"] <-
+        (ASHP_WoodPellet_emissions_cost + backup_WoodPellet_emissions_cost + cooling_emissions_cost)/(1+discount_rate)^j
+      track_years[track_years$n == j, "AC_emissions_cost"] <- cooling_emissions_cost/(1+discount_rate)^j
       ######################### end of "NPV" section ####################
     }
+    track_years[is.na(track_years)] <- 0
+    
     ## at the end of the 15 years, we then take the sum of the annual NPVs to find
     ## the total NPV
     track_trials[i, "NG"] <- sum(track_years$NG)
     track_trials[i, "HO"] <- sum(track_years$HO)
     track_trials[i, "P"] <- sum(track_years$P)
+    track_trials[i, "ElecRes"] <- sum(track_years$ElecRes)
+    track_trials[i, "WoodCord"] <- sum(track_years$WoodCord)
+    track_trials[i, "WoodPellet"] <- sum(track_years$WoodPellet)
     track_trials[i, "ASHP_NG"] <- sum(track_years$ASHP_NG)
     track_trials[i, "ASHP_HO"] <- sum(track_years$ASHP_HO)
     track_trials[i, "ASHP_P"] <- sum(track_years$ASHP_P)
-    # keep track of individual years to allow for an average annual net benfits 
-    # calculation
-    # track_years$trial <- i
-    # track_years_total <- rbind(track_years_total, track_years)
-    # keep track of installation, emissions, and private costs, separately to
-    # create a graph later on for each ASHP scenario
-    # track_emissions_and_private[i, "NG_install"] <- track_years[1,"NG"]
-    # track_emissions_and_private[i, "HO_install"] <- track_years[1,"HO"]
-    # track_emissions_and_private[i, "P_install"] <- track_years[1,"P"]
-    # track_emissions_and_private[i, "ASHP_NG_install"] <- track_years[1,"ASHP_NG"]
-    # track_emissions_and_private[i, "ASHP_HO_install"] <- track_years[1,"ASHP_HO"]
-    # track_emissions_and_private[i, "ASHP_P_install"] <- track_years[1,"ASHP_P"]
-    # track_emissions_and_private[i, "NG_private"] <- sum(track_years$NG_private)
-    # track_emissions_and_private[i, "HO_private"] <- sum(track_years$HO_private)
-    # track_emissions_and_private[i, "P_private"] <- sum(track_years$P_private)
-    # track_emissions_and_private[i, "ASHP_NG_private"] <-
-    #   sum(track_years$ASHP_NG_private)
-    # track_emissions_and_private[i, "ASHP_HO_private"] <-
-    #   sum(track_years$ASHP_HO_private)
-    # track_emissions_and_private[i, "ASHP_P_private"] <-
-    #   sum(track_years$ASHP_P_private)
-    # track_emissions_and_private[i, "NG_emissions"] <- sum(track_years$NG_emissions)
-    # track_emissions_and_private[i, "HO_emissions"] <- sum(track_years$HO_emissions)
-    # track_emissions_and_private[i, "P_emissions"] <- sum(track_years$P_emissions)
-    # track_emissions_and_private[i, "ASHP_NG_emissions"] <-
-    #   sum(track_years$ASHP_NG_emissions)
-    # track_emissions_and_private[i, "ASHP_HO_emissions"] <-
-    #   sum(track_years$ASHP_HO_emissions)
-    # track_emissions_and_private[i, "ASHP_P_emissions"] <-
-    #   sum(track_years$ASHP_P_emissions)
-    if(i%%100 == 0) print(paste0("trial: ", i))
-    }
-  track_trials$NG_dif <- track_trials$NG - track_trials$ASHP_NG
-  track_trials$HO_dif <- track_trials$HO - track_trials$ASHP_HO
-  track_trials$P_dif <- track_trials$P - track_trials$ASHP_P
-  geo[k,]$mean_NG <- mean(track_trials$NG_dif)
-  geo[k,]$mean_HO <- mean(track_trials$HO_dif)
-  geo[k,]$mean_P <- mean(track_trials$P_dif)
-  geo[k,]$perc_NG <- mean(track_trials$NG_dif > 0)
-  geo[k,]$perc_HO <- mean(track_trials$HO_dif > 0)
-  geo[k,]$perc_P <- mean(track_trials$P_dif > 0)
+    track_trials[i, "ASHP_ElecRes"] <- sum(track_years$ASHP_ElecRes)
+    track_trials[i, "ASHP_WoodCord"] <- sum(track_years$ASHP_WoodCord)
+    track_trials[i, "ASHP_WoodPellet"] <- sum(track_years$ASHP_WoodPellet)
+    track_trials[i, "AC"] <- sum(track_years$AC)
+    
+    ##subparts
+    ## capital
+    track_trials[i, "NG_capital"] <- track_years[1,"NG"]
+    track_trials[i, "HO_capital"] <- track_years[1,"HO"]
+    track_trials[i, "P_capital"] <- track_years[1,"P"]
+    track_trials[i, "ElecRes_capital"] <- track_years[1,"ElecRes"]
+    track_trials[i, "WoodCord_capital"] <- track_years[1,"WoodCord"]
+    track_trials[i, "WoodPellet_capital"] <- track_years[1,"WoodPellet"]
+    track_trials[i, "ASHP_NG_capital"] <- track_years[1,"ASHP_NG"]
+    track_trials[i, "ASHP_HO_capital"] <- track_years[1,"ASHP_HO"]
+    track_trials[i, "ASHP_P_capital"] <- track_years[1,"ASHP_P"]
+    track_trials[i, "ASHP_ElecRes_capital"] <- track_years[1,"ASHP_ElecRes"]
+    track_trials[i, "ASHP_WoodCord_capital"] <- track_years[1,"ASHP_WoodCord"]
+    track_trials[i, "ASHP_WoodPellet_capital"] <- track_years[1,"ASHP_WoodPellet"]
+    track_trials[i, "AC_capital"] <- track_years[1,"AC"]
+    ## M&O
+    track_trials[i, "NG_MO"] <- sum(track_years$NG_MO)
+    track_trials[i, "HO_MO"] <- sum(track_years$HO_MO)
+    track_trials[i, "P_MO"] <- sum(track_years$P_MO)
+    track_trials[i, "ElecRes_MO"] <- sum(track_years$ElecRes_MO)
+    track_trials[i, "WoodCord_MO"] <- sum(track_years$WoodCord_MO)
+    track_trials[i, "WoodPellet_MO"] <- sum(track_years$WoodPellet_MO)
+    track_trials[i, "ASHP_NG_MO"] <- sum(track_years$ASHP_NG_MO)
+    track_trials[i, "ASHP_HO_MO"] <- sum(track_years$ASHP_HO_MO)
+    track_trials[i, "ASHP_P_MO"] <- sum(track_years$ASHP_P_MO)
+    track_trials[i, "ASHP_ElecRes_MO"] <- sum(track_years$ASHP_ElecRes_MO)
+    track_trials[i, "ASHP_WoodCord_MO"] <- sum(track_years$ASHP_WoodCord_MO)
+    track_trials[i, "ASHP_WoodPellet_MO"] <- sum(track_years$ASHP_WoodPellet_MO)
+    track_trials[i, "AC_MO"] <- 0
+    #### emissions costs
+    track_trials[i, "NG_emissions_cost"] <- sum(track_years$NG_emissions_cost)
+    track_trials[i, "HO_emissions_cost"] <- sum(track_years$HO_emissions_cost)
+    track_trials[i, "P_emissions_cost"] <- sum(track_years$P_emissions_cost)
+    track_trials[i, "ElecRes_emissions_cost"] <- sum(track_years$ElecRes_emissions_cost)
+    track_trials[i, "WoodCord_emissions_cost"] <- sum(track_years$WoodCord_emissions_cost)
+    track_trials[i, "WoodPellet_emissions_cost"] <- sum(track_years$WoodPellet_emissions_cost)
+    track_trials[i, "ASHP_NG_emissions_cost"] <- sum(track_years$ASHP_NG_emissions_cost)
+    track_trials[i, "ASHP_HO_emissions_cost"] <- sum(track_years$ASHP_HO_emissions_cost)
+    track_trials[i, "ASHP_P_emissions_cost"] <- sum(track_years$ASHP_P_emissions_cost)
+    track_trials[i, "ASHP_ElecRes_emissions_cost"] <- sum(track_years$ASHP_ElecRes_emissions_cost)
+    track_trials[i, "ASHP_WoodCord_emissions_cost"] <- sum(track_years$ASHP_WoodCord_emissions_cost)
+    track_trials[i, "ASHP_WoodPellet_emissions_cost"] <- sum(track_years$ASHP_WoodPellet_emissions_cost)
+    track_trials[i, "AC_emissions_cost"] <- sum(track_years$AC_emissions_cost)
+    #### emissions
+    track_trials[i, "NG_emissions"] <- sum(track_years$NG_emissions_cost)/social_cost_of_CO2
+    track_trials[i, "HO_emissions"] <- sum(track_years$HO_emissions_cost)/social_cost_of_CO2
+    track_trials[i, "P_emissions"] <- sum(track_years$P_emissions_cost)/social_cost_of_CO2
+    track_trials[i, "ElecRes_emissions"] <- sum(track_years$ElecRes_emissions_cost)/social_cost_of_CO2
+    track_trials[i, "WoodCord_emissions"] <- sum(track_years$WoodCord_emissions_cost)/social_cost_of_CO2
+    track_trials[i, "WoodPellet_emissions"] <- sum(track_years$WoodPellet_emissions_cost)/social_cost_of_CO2
+    track_trials[i, "ASHP_NG_emissions"] <- sum(track_years$ASHP_NG_emissions_cost)/social_cost_of_CO2
+    track_trials[i, "ASHP_HO_emissions"] <- sum(track_years$ASHP_HO_emissions_cost)/social_cost_of_CO2
+    track_trials[i, "ASHP_P_emissions"] <- sum(track_years$ASHP_P_emissions_cost)/social_cost_of_CO2
+    track_trials[i, "ASHP_ElecRes_emissions"] <- sum(track_years$ASHP_ElecRes_emissions_cost)/social_cost_of_CO2
+    track_trials[i, "ASHP_WoodCord_emissions"] <- sum(track_years$ASHP_WoodCord_emissions_cost)/social_cost_of_CO2
+    track_trials[i, "ASHP_WoodPellet_emissions"] <- sum(track_years$ASHP_WoodPellet_emissions_cost)/social_cost_of_CO2
+    track_trials[i, "AC_emissions"] <- sum(track_years$AC_emissions_cost)/social_cost_of_CO2
+  }
+  geo[k,"NG_cool_NB"] <- mean(track_trials$ASHP_NG) - (mean(track_trials$NG) + mean(track_trials$AC))
+  geo[k,"NG_cool_NB_capital"] <- mean(track_trials$ASHP_NG_capital) - (mean(track_trials$NG_capital) + mean(track_trials$AC_capital))
+  geo[k,"NG_cool_NB_MO"] <- mean(track_trials$ASHP_NG_MO) - (mean(track_trials$NG_MO) + mean(track_trials$AC_MO))
+  geo[k,"NG_cool_NB_emissions"] <- mean(track_trials$ASHP_NG_emissions_cost) - (mean(track_trials$NG_emissions_cost) + mean(track_trials$AC_emissions_cost))
+  geo[k,"NG_cool_private"] <- geo[k,"NG_cool_NB_capital"] + geo[k,"NG_cool_NB_MO"]
+  geo[k,"NG_cool_CO2e"] <- mean(track_trials$ASHP_NG_emissions) - (mean(track_trials$NG_emissions) + mean(track_trials$AC_emissions))
+  geo[k,"NG_nocool_NB"] <- mean(track_trials$ASHP_NG) - mean(track_trials$NG)
+  geo[k,"NG_nocool_NB_capital"] <- mean(track_trials$ASHP_NG_capital) - mean(track_trials$NG_capital)
+  geo[k,"NG_nocool_NB_MO"] <- mean(track_trials$ASHP_NG_MO) - mean(track_trials$NG_MO)
+  geo[k,"NG_nocool_NB_emissions"] <- mean(track_trials$ASHP_NG_emissions_cost) - mean(track_trials$NG_emissions_cost)
+  geo[k,"NG_nocool_private"] <- geo[k,"NG_nocool_NB_capital"] + geo[k,"NG_nocool_NB_MO"]
+  geo[k,"NG_nocool_CO2e"] <- mean(track_trials$ASHP_NG_emissions) - mean(track_trials$NG_emissions)
+  geo[k,"HO_cool_NB"] <- mean(track_trials$ASHP_HO) - (mean(track_trials$HO) + mean(track_trials$AC))
+  geo[k,"HO_cool_NB_capital"] <- mean(track_trials$ASHP_HO_capital) - (mean(track_trials$HO_capital) + mean(track_trials$AC_capital))
+  geo[k,"HO_cool_NB_MO"] <- mean(track_trials$ASHP_HO_MO) - (mean(track_trials$HO_MO) + mean(track_trials$AC_MO))
+  geo[k,"HO_cool_NB_emissions"] <- mean(track_trials$ASHP_HO_emissions_cost) - (mean(track_trials$HO_emissions_cost) + mean(track_trials$AC_emissions_cost))
+  geo[k,"HO_cool_private"] <- geo[k,"HO_cool_NB_capital"] + geo[k,"HO_cool_NB_MO"]
+  geo[k,"HO_cool_CO2e"] <- mean(track_trials$ASHP_HO_emissions) - (mean(track_trials$HO_emissions) + mean(track_trials$AC_emissions))
+  geo[k,"HO_nocool_NB"] <- mean(track_trials$ASHP_HO) - mean(track_trials$HO)
+  geo[k,"HO_nocool_NB_capital"] <- mean(track_trials$ASHP_HO_capital) - mean(track_trials$HO_capital)
+  geo[k,"HO_nocool_NB_MO"] <- mean(track_trials$ASHP_HO_MO) - mean(track_trials$HO_MO)
+  geo[k,"HO_nocool_NB_emissions"] <- mean(track_trials$ASHP_HO_emissions_cost) - mean(track_trials$HO_emissions_cost)
+  geo[k,"HO_nocool_private"] <- geo[k,"HO_nocool_NB_capital"] + geo[k,"HO_nocool_NB_MO"]
+  geo[k,"HO_nocool_CO2e"] <- mean(track_trials$ASHP_HO_emissions) - mean(track_trials$HO_emissions)
+  geo[k,"P_cool_NB"] <- mean(track_trials$ASHP_P) - (mean(track_trials$P) + mean(track_trials$AC))
+  geo[k,"P_cool_NB_capital"] <- mean(track_trials$ASHP_P_capital) - (mean(track_trials$P_capital) + mean(track_trials$AC_capital))
+  geo[k,"P_cool_NB_MO"] <- mean(track_trials$ASHP_P_MO) - (mean(track_trials$P_MO) + mean(track_trials$AC_MO))
+  geo[k,"P_cool_NB_emissions"] <- mean(track_trials$ASHP_P_emissions_cost) - (mean(track_trials$P_emissions_cost) + mean(track_trials$AC_emissions_cost))
+  geo[k,"P_cool_private"] <- geo[k,"P_cool_NB_capital"] + geo[k,"P_cool_NB_MO"]
+  geo[k,"P_cool_CO2e"] <- mean(track_trials$ASHP_P_emissions) - (mean(track_trials$P_emissions) + mean(track_trials$AC_emissions))
+  geo[k,"P_nocool_NB"] <- mean(track_trials$ASHP_P) - mean(track_trials$P)
+  geo[k,"P_nocool_NB_capital"] <- mean(track_trials$ASHP_P_capital) - mean(track_trials$P_capital)
+  geo[k,"P_nocool_NB_MO"] <- mean(track_trials$ASHP_P_MO) - mean(track_trials$P_MO)
+  geo[k,"P_nocool_NB_emissions"] <- mean(track_trials$ASHP_P_emissions_cost) - mean(track_trials$P_emissions_cost)
+  geo[k,"P_nocool_private"] <- geo[k,"P_nocool_NB_capital"] + geo[k,"P_nocool_NB_MO"]
+  geo[k,"P_nocool_CO2e"] <- mean(track_trials$ASHP_P_emissions) - mean(track_trials$P_emissions)
+  geo[k,"ElecRes_cool_NB"] <- mean(track_trials$ASHP_ElecRes) - (mean(track_trials$ElecRes) + mean(track_trials$AC))
+  geo[k,"ElecRes_cool_NB_capital"] <- mean(track_trials$ASHP_ElecRes_capital) - (mean(track_trials$ElecRes_capital) + mean(track_trials$AC_capital))
+  geo[k,"ElecRes_cool_NB_MO"] <- mean(track_trials$ASHP_ElecRes_MO) - (mean(track_trials$ElecRes_MO) + mean(track_trials$AC_MO))
+  geo[k,"ElecRes_cool_NB_emissions"] <- mean(track_trials$ASHP_ElecRes_emissions_cost) - (mean(track_trials$ElecRes_emissions_cost) + mean(track_trials$AC_emissions_cost))
+  geo[k,"ElecRes_cool_private"] <- geo[k,"ElecRes_cool_NB_capital"] + geo[k,"ElecRes_cool_NB_MO"]
+  geo[k,"ElecRes_cool_CO2e"] <- mean(track_trials$ASHP_ElecRes_emissions) - (mean(track_trials$ElecRes_emissions) + mean(track_trials$AC_emissions))
+  geo[k,"ElecRes_nocool_NB"] <- mean(track_trials$ASHP_ElecRes) - mean(track_trials$ElecRes)
+  geo[k,"ElecRes_nocool_NB_capital"] <- mean(track_trials$ASHP_ElecRes_capital) - mean(track_trials$ElecRes_capital)
+  geo[k,"ElecRes_nocool_NB_MO"] <- mean(track_trials$ASHP_ElecRes_MO) - mean(track_trials$ElecRes_MO)
+  geo[k,"ElecRes_nocool_NB_emissions"] <- mean(track_trials$ASHP_ElecRes_emissions_cost) - mean(track_trials$ElecRes_emissions_cost)
+  geo[k,"ElecRes_nocool_private"] <- geo[k,"ElecRes_nocool_NB_capital"] + geo[k,"ElecRes_nocool_NB_MO"]
+  geo[k,"ElecRes_nocool_CO2e"] <- mean(track_trials$ASHP_ElecRes_emissions) - mean(track_trials$ElecRes_emissions)
+  geo[k,"wood_cool_NB"] <- (mean(track_trials$ASHP_WoodCord) + mean(track_trials$ASHP_WoodPellet))/2 - ((mean(track_trials$WoodCord) + mean(track_trials$WoodPellet))/2  + mean(track_trials$AC))
+  geo[k,"wood_cool_NB_capital"] <- (mean(track_trials$ASHP_WoodCord_capital) + mean(track_trials$ASHP_WoodPellet_capital))/2 - ((mean(track_trials$WoodCord_capital) + mean(track_trials$WoodPellet_capital))/2  + mean(track_trials$AC_capital))
+  geo[k,"wood_cool_NB_MO"] <- (mean(track_trials$ASHP_WoodCord_MO) + mean(track_trials$ASHP_WoodPellet_MO))/2 - ((mean(track_trials$WoodCord_MO) + mean(track_trials$WoodPellet_MO))/2  + mean(track_trials$AC_MO))
+  geo[k,"wood_cool_NB_emissions"] <- (mean(track_trials$ASHP_WoodCord_emissions_cost) + mean(track_trials$ASHP_WoodPellet_emissions_cost))/2 - ((mean(track_trials$WoodCord_emissions_cost) + mean(track_trials$WoodPellet_emissions_cost))/2  + mean(track_trials$AC_emissions_cost))
+  geo[k,"wood_cool_private"] <- geo[k,"wood_cool_NB_capital"] + geo[k,"wood_cool_NB_MO"]
+  geo[k,"wood_cool_CO2e"] <- (mean(track_trials$ASHP_WoodCord_emissions) + mean(track_trials$ASHP_WoodPellet_emissions))/2 - ((mean(track_trials$WoodCord_emissions) + mean(track_trials$WoodPellet_emissions))/2  + mean(track_trials$AC_emissions))
+  geo[k,"wood_nocool_NB"] <- (mean(track_trials$ASHP_WoodCord) + mean(track_trials$ASHP_WoodPellet))/2 - ((mean(track_trials$WoodCord) + mean(track_trials$WoodPellet))/2 )
+  geo[k,"wood_nocool_NB_capital"] <- (mean(track_trials$ASHP_WoodCord_capital) + mean(track_trials$ASHP_WoodPellet_capital))/2 - ((mean(track_trials$WoodCord_capital) + mean(track_trials$WoodPellet_capital))/2 )
+  geo[k,"wood_nocool_NB_MO"] <- (mean(track_trials$ASHP_WoodCord_MO) + mean(track_trials$ASHP_WoodPellet_MO))/2 - ((mean(track_trials$WoodCord_MO) + mean(track_trials$WoodPellet_MO))/2)
+  geo[k,"wood_nocool_NB_emissions"] <- (mean(track_trials$ASHP_WoodCord_emissions_cost) + mean(track_trials$ASHP_WoodPellet_emissions_cost))/2 - ((mean(track_trials$WoodCord_emissions_cost) + mean(track_trials$WoodPellet_emissions_cost))/2)
+  geo[k,"wood_nocool_private"] <- geo[k,"wood_nocool_NB_capital"] + geo[k,"wood_nocool_NB_MO"]
+  geo[k,"wood_nocool_CO2e"] <- (mean(track_trials$ASHP_WoodCord_emissions) + mean(track_trials$ASHP_WoodPellet_emissions))/2 - ((mean(track_trials$WoodCord_emissions) + mean(track_trials$WoodPellet_emissions))/2)
+  geo[k,c(127:ncol(geo))] <- geo[k,c(127:ncol(geo))]*-1
+  print(k)
 }
 
 ## results
