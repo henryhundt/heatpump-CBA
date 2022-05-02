@@ -84,42 +84,6 @@ backupheatingload <- function(heating_bin_hours, switchover_temp){
   return(heating_load*backup_prop/total_prop)
 }
 
-# ## this function's purpose is just to create a "temperature_bin_hours" data frame
-# ## that can be passed to the annual_COP function below to calculate average 
-# ## cooling COP. 
-# cooling_load_proportion <- function(indoor_design_temperature, 
-#                                     temperature_bin_hours){
-#   
-#   #remove temperature bins that don't require cooling
-#   low <- which(str_detect(temperature_bin_hours$Temperature.Range, 
-#                           paste0(indoor_design_temperature, " to ")))
-#   temperature_bin_hours <- temperature_bin_hours[c(1:low),]
-#   
-#   # calculate distance between highest temperature and indoor design temp
-#   temperature_distance = low*5
-#   
-#   # now calculate the COP weighted by amount of cooling that needs to be
-#   # provided in each temperature bin hour
-#   temperature_bin_hours$load_proportion <- 0
-#   temperature_bin_hours[1, "load_proportion"] <- 
-#     temperature_bin_hours[1, "Weighted.Average"]
-#   # from above, the "5" comes from the size of the temperature bin
-#   # the two comes from the fact that it's an average of two numbers
-#   proportion = 1
-#   denominator <- temperature_distance/5*2
-#   for(i in (2):low){
-#     temperature_bin_hours[i, "load_proportion"] <- 
-#       temperature_bin_hours[i, "Weighted.Average"] * (1-proportion/denominator)
-#     proportion <- proportion + 2
-#   }
-#   
-#   # we flip the order of the cooling bin hours dataframe so that it fits
-#   # the code of the COP function better
-#   temperature_bin_hours <- map_df(temperature_bin_hours, rev)
-#   
-#   return(temperature_bin_hours)
-# }
-
 # calculate the average COP of the ASHP for cooling and for heating 
 # for heating, it uses COP values at 5 and 65 degrees Fahrenheit
 # for cooling, it uses COP values at 
@@ -477,8 +441,8 @@ for(k in 1:nrow(geo)) {
     ## randomly choose what energy projections to run based on one of 10 different
     ## scenarios that EIA provides, which determines the price of all fuels/
     ## electricity over time for a given trial. (all prices are in 2020 $s/MMBTU)
-    scenario <- floor(runif(1, min = 1, max = 11))
-    columns <- c(scenario + 1, scenario + 11, scenario + 21, scenario + 31)
+    scenario <- floor(runif(1000, min = 1, max = 11))
+    columns <- c(scenario, scenario + 10, scenario + 20, scenario + 30)
     projections <- projections_base[,columns]
     fuel_cost_growth_rates <- fuel_cost_growth_rates_base[,columns]
     
