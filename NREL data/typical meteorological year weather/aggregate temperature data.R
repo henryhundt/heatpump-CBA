@@ -10,14 +10,14 @@ final <- NA
 for(i in 1:length(files)){
   temp <- read.csv(files[i])
   temp$temperature <- temp$Dry.Bulb.Temperature...C.*9/5+32
-  county <- str_extract(files[i], "5.*0")
-  county <- str_remove(county, "G550")
-  temp$county <- paste0("55", str_remove(county, "0$"))
+  FIPS <- str_extract(files[i], "5.*0")
+  FIPS <- str_remove(FIPS, "550")
+  temp$FIPS <- paste0("55", str_remove(FIPS, "0$"))
   temp$date_time <- ymd_hms(temp$date_time)
   temp$month <- month(temp$date_time)
   temp$day <- day(temp$date_time)
   temp$hour <- hour(temp$date_time)
-  temp <- select(temp, month, day, hour, temperature, county)
+  temp <- select(temp, month, day, hour, temperature, FIPS)
   final <- rbind(final, temp)
 }
 
