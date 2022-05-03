@@ -998,6 +998,26 @@ for(k in 1:nrow(geo)) {
   geo[k,"wood_nocool_private"] <- geo[k,"wood_nocool_NB_capital"] + geo[k,"wood_nocool_NB_MO"]
   geo[k,"wood_nocool_CO2e"] <- (mean(track_trials$ASHP_WoodCord_emissions) + mean(track_trials$ASHP_WoodPellet_emissions))/2 - ((mean(track_trials$WoodCord_emissions) + mean(track_trials$WoodPellet_emissions))/2)
   geo[k,c(127:ncol(geo))] <- geo[k,c(127:ncol(geo))]*-1
+  geo[k,"perc_positive_NB_NG_cool"] <- mean((track_trials$ASHP_NG - (track_trials$NG + track_trials$AC)) < 0)
+  geo[k,"perc_positive_private_NG_cool"] <- mean(((track_trials$ASHP_NG_capital + track_trials$ASHP_NG_MO) - (track_trials$NG_capital + track_trials$AC_capital + track_trials$NG_MO + track_trials$AC_MO)) < 0)
+  geo[k,"perc_positive_NB_NG_nocool"] <- mean((track_trials$ASHP_NG - track_trials$NG) < 0)
+  geo[k,"perc_positive_private_NG_nocool"] <- mean(((track_trials$ASHP_NG_capital + track_trials$ASHP_NG_MO) - (track_trials$NG_capital + track_trials$NG_MO)) < 0)
+  geo[k,"perc_positive_NB_P_cool"] <- mean((track_trials$ASHP_P - (track_trials$P + track_trials$AC)) < 0)
+  geo[k,"perc_positive_private_P_cool"] <- mean(((track_trials$ASHP_P_capital + track_trials$ASHP_P_MO) - (track_trials$P_capital + track_trials$AC_capital + track_trials$P_MO + track_trials$AC_MO)) < 0)
+  geo[k,"perc_positive_NB_P_nocool"] <- mean((track_trials$ASHP_P - track_trials$P) < 0)
+  geo[k,"perc_positive_private_P_nocool"] <- mean(((track_trials$ASHP_P_capital + track_trials$ASHP_P_MO) - (track_trials$P_capital + track_trials$P_MO)) < 0)
+  geo[k,"perc_positive_NB_HO_cool"] <- mean((track_trials$ASHP_HO - (track_trials$HO + track_trials$AC)) < 0)
+  geo[k,"perc_positive_private_HO_cool"] <- mean(((track_trials$ASHP_HO_capital + track_trials$ASHP_HO_MO) - (track_trials$HO_capital + track_trials$AC_capital + track_trials$HO_MO + track_trials$AC_MO)) < 0)
+  geo[k,"perc_positive_NB_HO_nocool"] <- mean((track_trials$ASHP_HO - track_trials$HO) < 0)
+  geo[k,"perc_positive_private_HO_nocool"] <- mean(((track_trials$ASHP_HO_capital + track_trials$ASHP_HO_MO) - (track_trials$HO_capital + track_trials$HO_MO)) < 0)
+  geo[k,"perc_positive_NB_ElecRes_cool"] <- mean((track_trials$ASHP_ElecRes - (track_trials$ElecRes + track_trials$AC)) < 0)
+  geo[k,"perc_positive_private_ElecRes_cool"] <- mean(((track_trials$ASHP_ElecRes_capital + track_trials$ASHP_ElecRes_MO) - (track_trials$ElecRes_capital + track_trials$AC_capital + track_trials$ElecRes_MO + track_trials$AC_MO)) < 0)
+  geo[k,"perc_positive_NB_ElecRes_nocool"] <- mean((track_trials$ASHP_ElecRes - track_trials$ElecRes) < 0)
+  geo[k,"perc_positive_private_ElecRes_nocool"] <- mean(((track_trials$ASHP_ElecRes_capital + track_trials$ASHP_ElecRes_MO) - (track_trials$ElecRes_capital + track_trials$ElecRes_MO)) < 0)
+  geo[k,"perc_positive_NB_wood_cool"] <- mean(((track_trials$ASHP_WoodCord + track_trials$ASHP_WoodPellet)/2 - ((track_trials$WoodCord_capital + track_trials$WoodPellet_capital)/2 + track_trials$AC)) < 0)
+  geo[k,"perc_positive_private_wood_cool"] <- mean((((track_trials$ASHP_WoodCord_capital + track_trials$ASHP_WoodPellet_capital)/2 + (track_trials$ASHP_WoodCord_MO + track_trials$ASHP_WoodPellet_MO)/2) - ((track_trials$WoodCord_capital + track_trials$WoodPellet_capital)/2 + track_trials$AC_capital + (track_trials$WoodCord_MO + track_trials$WoodPellet_MO)/2 + track_trials$AC_MO)) < 0)
+  geo[k,"perc_positive_NB_wood_nocool"] <- mean(((track_trials$ASHP_WoodCord + track_trials$ASHP_WoodPellet)/2 - ((track_trials$WoodCord_capital + track_trials$WoodPellet_capital)/2)) < 0)
+  geo[k,"perc_positive_private_wood_nocool"] <- mean((((track_trials$ASHP_WoodCord_capital + track_trials$ASHP_WoodPellet_capital)/2 + (track_trials$ASHP_WoodCord_MO + track_trials$ASHP_WoodPellet_MO)/2) - ((track_trials$WoodCord_capital + track_trials$WoodPellet_capital)/2 + (track_trials$WoodCord_MO + track_trials$WoodPellet_MO)/2)) < 0)
   print(k)
 }
 
