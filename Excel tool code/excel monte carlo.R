@@ -789,17 +789,17 @@ for(k in 1:length(heating_steps)){
       AC <- cooling_emissions_cost
       
       ASHP_NG <- ASHP_NG_fuel_cost + ASHP_NG_emissions_cost +
-        backup_naturalgas_emissions_cost + backup_naturalgas_fuel_cost
+        backup_naturalgas_emissions_cost + backup_naturalgas_fuel_cost + cooling_emissions_cost
       ASHP_HO <- ASHP_HO_fuel_cost + ASHP_HO_emissions_cost +
-        backup_heatingoil_emissions_cost + backup_heatingoil_fuel_cost
+        backup_heatingoil_emissions_cost + backup_heatingoil_fuel_cost + cooling_emissions_cost
       ASHP_P <- ASHP_P_fuel_cost + ASHP_P_emissions_cost +
-        backup_propane_emissions_cost + backup_propane_fuel_cost
+        backup_propane_emissions_cost + backup_propane_fuel_cost + cooling_emissions_cost
       ASHP_ElecRes <- ASHP_ElecRes_fuel_cost + ASHP_ElecRes_emissions_cost +
-        backup_ElecRes_emissions_cost + backup_ElecRes_fuel_cost
+        backup_ElecRes_emissions_cost + backup_ElecRes_fuel_cost + cooling_emissions_cost
       ASHP_WoodCord <- ASHP_WoodCord_fuel_cost + ASHP_WoodCord_emissions_cost +
-        backup_WoodCord_emissions_cost + backup_WoodCord_fuel_cost
+        backup_WoodCord_emissions_cost + backup_WoodCord_fuel_cost + cooling_emissions_cost
       ASHP_WoodPellet <- ASHP_WoodPellet_fuel_cost + ASHP_WoodPellet_emissions_cost +
-        backup_WoodPellet_emissions_cost + backup_WoodPellet_fuel_cost
+        backup_WoodPellet_emissions_cost + backup_WoodPellet_fuel_cost + cooling_emissions_cost
       
       ## discount the annual costs to derive the NPV
       track_years[track_years$n == j, "NG"] <- NG/(1+discount_rate)^j
@@ -857,17 +857,17 @@ for(k in 1:length(heating_steps)){
       track_years[track_years$n == j, "WoodPellet_emissions_cost"] <-
         full_WoodPellet_emissions_cost/(1+discount_rate)^j
       track_years[track_years$n == j, "ASHP_NG_emissions_cost"] <-
-        (ASHP_NG_emissions_cost + backup_naturalgas_emissions_cost)/(1+discount_rate)^j
+        (ASHP_NG_emissions_cost + backup_naturalgas_emissions_cost + cooling_emissions_cost)/(1+discount_rate)^j
       track_years[track_years$n == j, "ASHP_HO_emissions_cost"] <-
-        (ASHP_HO_emissions_cost + backup_heatingoil_emissions_cost)/(1+discount_rate)^j
+        (ASHP_HO_emissions_cost + backup_heatingoil_emissions_cost + cooling_emissions_cost)/(1+discount_rate)^j
       track_years[track_years$n == j, "ASHP_P_emissions_cost"] <-
-        (ASHP_P_emissions_cost + backup_propane_emissions_cost)/(1+discount_rate)^j
+        (ASHP_P_emissions_cost + backup_propane_emissions_cost + cooling_emissions_cost)/(1+discount_rate)^j
       track_years[track_years$n == j, "ASHP_ElecRes_emissions_cost"] <-
-        (ASHP_ElecRes_emissions_cost + backup_ElecRes_emissions_cost)/(1+discount_rate)^j
+        (ASHP_ElecRes_emissions_cost + backup_ElecRes_emissions_cost + cooling_emissions_cost)/(1+discount_rate)^j
       track_years[track_years$n == j, "ASHP_WoodCord_emissions_cost"] <-
-        (ASHP_WoodCord_emissions_cost + backup_WoodCord_emissions_cost)/(1+discount_rate)^j
+        (ASHP_WoodCord_emissions_cost + backup_WoodCord_emissions_cost + cooling_emissions_cost)/(1+discount_rate)^j
       track_years[track_years$n == j, "ASHP_WoodPellet_emissions_cost"] <-
-        (ASHP_WoodPellet_emissions_cost + backup_WoodPellet_emissions_cost)/(1+discount_rate)^j
+        (ASHP_WoodPellet_emissions_cost + backup_WoodPellet_emissions_cost + cooling_emissions_cost)/(1+discount_rate)^j
       track_years[track_years$n == j, "AC_emissions_cost"] <- cooling_emissions_cost/(1+discount_rate)^j
       ######################### end of "NPV" section ####################
     }
