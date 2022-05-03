@@ -1021,6 +1021,8 @@ for(k in 1:nrow(geo)) {
   print(k)
 }
 
+write.csv(geo, "final.csv", row.names = F)
+
 ## results
 #install.packages("ggplot2")
 # library(ggplot2)
