@@ -23,7 +23,6 @@ setwd("~/Documents/GitHub/heatpump-CBA")
 #install.packages("purrr)
 library(stringr)
 library(dplyr)
-library(purrr)
 
 ################### set functions ########################################
 ############### functions to be used for calculations #####################
