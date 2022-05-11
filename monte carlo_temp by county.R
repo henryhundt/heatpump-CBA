@@ -206,7 +206,6 @@ base <- projections_base[1,]
 fuel_cost_growth_rates_base <- as.data.frame(t(apply(projections_base, 1, function(rowval) unlist(rowval / base))))
 
 #### read in list of ASHP COPs
-TKTKTK #update this? with the scraped data?
 ASHP_COPs <- read.csv("ASHP random sample.csv")
 ASHP_COPs <- select(ASHP_COPs, starts_with("cop"))
 
@@ -233,7 +232,6 @@ cooling_kWh_base <- read.csv("./NREL data/heating and cooling load/cooling kWh b
 
 ## not to keep
 ### installation sizing and efficiency 
-TKTKTK
 size <- 2
 efficiency <- 16
 
@@ -1014,9 +1012,9 @@ for(k in 1:nrow(geo)) {
   geo[k,"perc_positive_private_ElecRes_cool"] <- mean(((track_trials$ASHP_ElecRes_capital + track_trials$ASHP_ElecRes_MO) - (track_trials$ElecRes_capital + track_trials$AC_capital + track_trials$ElecRes_MO + track_trials$AC_MO)) < 0)
   geo[k,"perc_positive_NB_ElecRes_nocool"] <- mean((track_trials$ASHP_ElecRes - track_trials$ElecRes) < 0)
   geo[k,"perc_positive_private_ElecRes_nocool"] <- mean(((track_trials$ASHP_ElecRes_capital + track_trials$ASHP_ElecRes_MO) - (track_trials$ElecRes_capital + track_trials$ElecRes_MO)) < 0)
-  geo[k,"perc_positive_NB_wood_cool"] <- mean(((track_trials$ASHP_WoodCord + track_trials$ASHP_WoodPellet)/2 - ((track_trials$WoodCord_capital + track_trials$WoodPellet_capital)/2 + track_trials$AC)) < 0)
+  geo[k,"perc_positive_NB_wood_cool"] <- mean(((track_trials$ASHP_WoodCord + track_trials$ASHP_WoodPellet)/2 - ((track_trials$WoodCord + track_trials$WoodPellet)/2 + track_trials$AC)) < 0)
   geo[k,"perc_positive_private_wood_cool"] <- mean((((track_trials$ASHP_WoodCord_capital + track_trials$ASHP_WoodPellet_capital)/2 + (track_trials$ASHP_WoodCord_MO + track_trials$ASHP_WoodPellet_MO)/2) - ((track_trials$WoodCord_capital + track_trials$WoodPellet_capital)/2 + track_trials$AC_capital + (track_trials$WoodCord_MO + track_trials$WoodPellet_MO)/2 + track_trials$AC_MO)) < 0)
-  geo[k,"perc_positive_NB_wood_nocool"] <- mean(((track_trials$ASHP_WoodCord + track_trials$ASHP_WoodPellet)/2 - ((track_trials$WoodCord_capital + track_trials$WoodPellet_capital)/2)) < 0)
+  geo[k,"perc_positive_NB_wood_nocool"] <- mean(((track_trials$ASHP_WoodCord + track_trials$ASHP_WoodPellet)/2 - ((track_trials$WoodCord + track_trials$WoodPellet)/2)) < 0)
   geo[k,"perc_positive_private_wood_nocool"] <- mean((((track_trials$ASHP_WoodCord_capital + track_trials$ASHP_WoodPellet_capital)/2 + (track_trials$ASHP_WoodCord_MO + track_trials$ASHP_WoodPellet_MO)/2) - ((track_trials$WoodCord_capital + track_trials$WoodPellet_capital)/2 + (track_trials$WoodCord_MO + track_trials$WoodPellet_MO)/2)) < 0)
   print(k)
 }
