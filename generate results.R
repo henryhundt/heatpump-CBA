@@ -2,7 +2,7 @@ library(dplyr)
 
 setwd("~/Documents/GitHub/heatpump-CBA")
 
-df <- read.csv("final.csv")
+df <- read.csv("final results.csv")
 
 locations <- read.csv("result locations.csv")
 
@@ -40,7 +40,7 @@ df$perc_positivePrivate_nocool <- df$perc_households_HO*df$perc_positive_private
 
 df <- select(df, contains("perc_"), contains("mean_"), NAME, FIPS, x, y)
 
-write.csv(df, "final results.csv", row.names = F)
+write.csv(df, "final results for map.csv", row.names = F)
 
 
 
