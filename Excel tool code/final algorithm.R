@@ -8,21 +8,22 @@ full <- read.csv("recs2015_public_v4.csv")
 
 full$CLIMATE_REGION_PUB <- str_remove_all(full$CLIMATE_REGION_PUB, "[-/ ]")
 full$IECC_CLIMATE_PUB <- str_remove_all(full$IECC_CLIMATE_PUB, "-")
-full <- filter(full, (IECC_CLIMATE_PUB == "5A" | IECC_CLIMATE_PUB == "5B5C" | IECC_CLIMATE_PUB == "6A6B") & DIVISION == 3)
+## focus on Wisconsin and on single family detached houses (TYPEHUQ)
+full <- filter(full, (IECC_CLIMATE_PUB == "5A" | IECC_CLIMATE_PUB == "5B5C" | IECC_CLIMATE_PUB == "6A6B") & DIVISION == 3 & TYPEHUQ == 2) 
 
 #full$METROMICRO <- as.factor(full$METROMICRO)
 #full$UATYP10 <- as.factor(full$UATYP10)
-full$STORIES <- as.factor(full$STORIES) 
-full$DIVISION <- as.factor(full$DIVISION)
-full$REGIONC <- as.factor(full$REGIONC)
-full$CELLAR <- as.factor(full$CELLAR)
-full$ATTIC <- as.factor(full$ATTIC)
-full$PRKGPLC1 <- as.factor(full$PRKGPLC1)
+#full$STORIES <- as.factor(full$STORIES) 
+#full$DIVISION <- as.factor(full$DIVISION)
+#full$REGIONC <- as.factor(full$REGIONC)
+#full$CELLAR <- as.factor(full$CELLAR)
+#full$ATTIC <- as.factor(full$ATTIC)
+#full$PRKGPLC1 <- as.factor(full$PRKGPLC1)
 full$YEARMADERANGE <- as.factor(full$YEARMADERANGE)
 #full$OCCUPYYRANGE <- as.factor(full$OCCUPYYRANGE)
-full$TYPEHUQ <- as.factor(full$TYPEHUQ)
-full$STUDIO <- as.factor(full$STUDIO)
-full$WALLTYPE <- as.factor(full$WALLTYPE)
+#full$TYPEHUQ <- as.factor(full$TYPEHUQ)
+#full$STUDIO <- as.factor(full$STUDIO)
+#full$WALLTYPE <- as.factor(full$WALLTYPE)
 #full$CLIMATE_REGION_PUB <- as.factor(full$CLIMATE_REGION_PUB)
 #full$IECC_CLIMATE_PUB <- as.factor(full$IECC_CLIMATE_PUB)
 
@@ -32,7 +33,7 @@ gc()
 final <- NA
 for(i in 1:nrow(full_temp)){
   temp <- full_temp[i,]
-  temp2 <- temp[rep(1,round(temp$NWEIGHT/500)),]
+  temp2 <- temp[rep(1,round(temp$NWEIGHT/10)),]
   final <- rbind(final, temp2)
   print(i)
 }
@@ -78,39 +79,39 @@ RMSE(pred, test_WI$TOTALBTU)
 summary(model)
 
 
-library(randomForest)
-library(ranger)
-tuneGrid <- expand.grid(
-  .mtry = seq(1, length(model$coefficients), 3),
-  .splitrule = "variance",
-  .min.node.size = seq(1, 51, 5)
-)
-
-# Fit random forest: model
-rf_model <- train(
-  formula(model$terms),
-  tuneLength = 1,
-  data = train,
-  method = "ranger",
-  tuneGrid = tuneGrid,
-  trControl = trainControl(
-    method = "cv",
-    number = 5,
-    verboseIter = T
-  )
-)
-
-bestmtry <- rf_model$bestTune$mtry
-bestnode <- rf_model$bestTune$min.node.size
-
-weekly_rf <- randomForest(formula = formula(model$terms),
-                          mtry = bestmtry,
-                          nodesize = bestnode,
-                          data = train)
-pred <- predict(weekly_rf,test)
-RMSE(pred, test$TOTALBTUSPH)
-plot(rf_model)
-test$pred_RF <- pred
-test$pred_distance_RF <- abs(test$TOTALBTUSPH - test$pred_RF)
-max(test$pred_distance_RF)
-hist(test$pred_distance_RF)
+# library(randomForest)
+# library(ranger)
+# tuneGrid <- expand.grid(
+#   .mtry = seq(1, length(model$coefficients), 3),
+#   .splitrule = "variance",
+#   .min.node.size = seq(1, 51, 5)
+# )
+# 
+# # Fit random forest: model
+# rf_model <- train(
+#   formula(model$terms),
+#   tuneLength = 1,
+#   data = train,
+#   method = "ranger",
+#   tuneGrid = tuneGrid,
+#   trControl = trainControl(
+#     method = "cv",
+#     number = 5,
+#     verboseIter = T
+#   )
+# )
+# 
+# bestmtry <- rf_model$bestTune$mtry
+# bestnode <- rf_model$bestTune$min.node.size
+# 
+# weekly_rf <- randomForest(formula = formula(model$terms),
+#                           mtry = bestmtry,
+#                           nodesize = bestnode,
+#                           data = train)
+# pred <- predict(weekly_rf,test)
+# RMSE(pred, test$TOTALBTUSPH)
+# plot(rf_model)
+# test$pred_RF <- pred
+# test$pred_distance_RF <- abs(test$TOTALBTUSPH - test$pred_RF)
+# max(test$pred_distance_RF)
+# hist(test$pred_distance_RF)
